@@ -1,0 +1,40 @@
+{
+  "name": "whatsappassist",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon",
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^24.1.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/qrcode-terminal": "^0.12.2",
+    "axios": "^1.11.0",
+    "cheerio": "^1.1.2",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "tsc": "^2.0.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@types/express": "^5.0.3",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "openai": "^5.11.0",
+    "pdf-extraction": "^1.0.2",
+    "qrcode-terminal": "^0.12.0",
+    "tesseract.js": "^6.0.1",
+    "whatsapp-web.js": "^1.31.0"
+  }
+}

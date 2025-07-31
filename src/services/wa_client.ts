@@ -8,7 +8,13 @@ import { getArticleContent } from "./scrap";
 const { Client, LocalAuth } = WhatsAppWebJS;
 
 const wa_client = new Client({
-  authStrategy: new LocalAuth(),
+  authStrategy: new LocalAuth({
+    clientId: "client-two",
+  }),
+  puppeteer: {
+    args: ["--no-sandbox", "--disable-setuid-sandbox"], // Prevent permission issues
+    timeout: 12000, // Increase timeout to 60 seconds
+  },
 });
 
 wa_client.on("qr", (qr) => {
@@ -21,36 +27,45 @@ wa_client.on("ready", () => {
 
 // for self response
 wa_client.on("message_create", async (msg) => {
-  const { body, fromMe, from } = msg;
-  console.log(body,'1')
+  const { body, fromMe, from, hasMedia } = msg;
+
   if (!fromMe) return;
-  
+
   const isTanya = body.includes("--tanya");
-  
+
   if (isTanya) {
-  let rawQuery = body.replace("--tanya", "");
+    let rawQuery = body.replace("--tanya", "");
 
     msg.reply("Baik kami akan memeriksa artikel tersebut, sebentar yaa..");
 
     try {
-      if (msg.hasMedia) {
-        console.log("test");
-        const response = await analyzeHoaxMessage({...msg,body:rawQuery});
-        const AISummary = await askingAI({
-          input: response || "",
-          prompt: promptData.summarize,
-        });
-        const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(
-          AISummary
-        );
-        wa_client.sendMessage(from, hoaxCheckFromKompas.summerize);
-        hoaxCheckFromKompas?.source?.forEach((source:any) => {
-          wa_client.sendMessage(from, source.link);
-        });
-       
-      }
+      if (hasMedia) {
+        const response = await analyzeHoaxMessage(msg);
 
-      if (msg.body) {
+        const querySummary = await askingAI({
+          input: response || "",
+          prompt: promptData.getHeadline,
+        });
+        const getHoax = await askingAI({
+          input: response || "",
+          prompt: promptData.checkHoax,
+        });
+
+        wa_client.sendMessage(from, `memulai context pertanyaan`);
+        wa_client.sendMessage(from, `${querySummary} --tanya`);
+        wa_client.sendMessage(from, getHoax);
+
+        // const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(
+        //   querySummary
+        // );
+
+        // console.log("menanyakan", querySummary);
+
+        // wa_client.sendMessage(from, hoaxCheckFromKompas.summerize);
+        // hoaxCheckFromKompas?.source?.forEach((source: any) => {
+        //   wa_client.sendMessage(from, source.link);
+        // });
+      } else {
         if (msg.body.startsWith("https") || msg.body.startsWith("http")) {
           const summary = await getArticleContent(rawQuery);
           const result = await askingAI({
@@ -62,7 +77,7 @@ wa_client.on("message_create", async (msg) => {
           const query = rawQuery;
           const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(query);
           wa_client.sendMessage(from, hoaxCheckFromKompas.summerize);
-          hoaxCheckFromKompas?.source?.forEach((source:any) => {
+          hoaxCheckFromKompas?.source?.forEach((source: any) => {
             wa_client.sendMessage(from, source.link);
           });
         }

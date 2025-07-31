@@ -1,7 +1,7 @@
 import mime from "mime-types";
 import fs from "fs";
 import { parsePDF } from "./parser";
-import type { MediaMessage } from "./parser";
+
 import axios from "axios";
 
 const topics: string[] = [
@@ -16,7 +16,7 @@ const topics: string[] = [
   "overtime",
 ];
 
-export async function analyzePDF(msg: MediaMessage): Promise<string> {
+export async function analyzePDF(msg: any): Promise<string> {
   if (!msg.hasMedia) {
     return "⚠️ No media attached.";
   }

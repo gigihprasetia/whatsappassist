@@ -63,7 +63,10 @@ export async function searchArticleWithGoogleAndAI(
 
     for (const site of FACT_CHECK_SITES) {
       const query = `${summary} site:${site}`;
+
       // const query = `${summary}`;
+
+      console.log(`mencari query ::: ${query}`);
       const response = await axios.get(
         "https://www.googleapis.com/customsearch/v1",
         {
@@ -75,10 +78,7 @@ export async function searchArticleWithGoogleAndAI(
         }
       );
 
-
-      console.log(response.data.items,'items')
-
-
+      console.log(response.data.items?.length, "items");
 
       if (response.data.items?.length) {
         allArticles = allArticles.concat(response.data.items).slice(0, 5);
@@ -86,17 +86,20 @@ export async function searchArticleWithGoogleAndAI(
     }
 
     if (!allArticles.length) {
-      return { summerize: "Tidak ditemukan artikel terkait dari situs pemeriksa fakta.", source: [] };
+      return {
+        summerize:
+          "Tidak ditemukan artikel terkait dari situs pemeriksa fakta.",
+        source: [],
+      };
     }
 
     // Gabungkan ringkasan dan sumber
     allArticles.forEach((item, idx) => {
-      articleSummaries += `Artikel ${idx + 1}: ${item.title}\n${item.snippet}\n\n`;
+      articleSummaries += `Artikel ${idx + 1}: ${item.title}\n${
+        item.snippet
+      }\n\n`;
       sourcesList += `${idx + 1}. ${item.link}\n`;
     });
-
-
-    
 
     const aiPrompt = `
 Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
@@ -111,8 +114,8 @@ ${sourcesList}
 KESIMPULAN: HOAX / TIDAK HOAX.
     `.trim();
 
-    const aiAnalysis = await askingAI({ input:aiPrompt});
-    return {summerize: aiAnalysis, source: allArticles}
+    const aiAnalysis = await askingAI({ input: aiPrompt });
+    return { summerize: aiAnalysis, source: allArticles };
   } catch (error: any) {
     console.error(
       "Gagal mencari artikel atau menganalisis dengan AI:",

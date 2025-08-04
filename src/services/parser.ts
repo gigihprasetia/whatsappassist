@@ -9,12 +9,12 @@ import { getArticleContent } from "./scrap";
 import pdf from "pdf-extraction";
 import path from "path";
 import { fileURLToPath } from "url";
-import { AI_AGENT } from "./ai_agent";
+import { AI_AGENT, askingAI } from "./ai_agent";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function parseVideo(videoData: string): Promise<string[]> {
+export async function parseVideoToMP3toText(videoData: string): Promise<string[]> {
   const timestamp = Date.now();
   const videoDir = path.join(__dirname, "../assets/video");
   const audioDir = path.join(__dirname, "../assets/audio");
@@ -91,17 +91,92 @@ export async function extractTextFromImage(imageData: string): Promise<string> {
   });
 }
 
+import { mediaCache } from '../utils/media_cache';
+
 export async function analyzeHoaxMessage(message: any): Promise<any> {
   try {
-    const media = await message.downloadMedia();
+    let media;
+    const rawData = (message as any)._data || {};
+    
+    console.log("message details:", {
+      id: message.id,
+      hasMedia: message.hasMedia,
+      mediaKey: rawData.mediaKey,
+      type: message.type
+    });
+    
+    // Check if we have cached media passed in
+    if ((message as any).cachedMedia) {
+      console.log("Using provided cached media");
+      media = (message as any).cachedMedia;
+    } else {
+      // Get media key from the message
+      const messageMediaKey = rawData.mediaKey || rawData.quotedMsg?.mediaKey;
+      if (messageMediaKey) {
+        // Try to get from cache first
+        const cachedMedia = mediaCache.get(messageMediaKey);
+        if (cachedMedia) {
+          console.log("Using cached media data");
+          media = cachedMedia;
+        } else {
+          // If media not in cache but we have a key, try downloading
+          console.log("Media not in cache, downloading...");
+          media = await message.downloadMedia();
+          if (media) {
+            // Store in cache
+            mediaCache.set(messageMediaKey, media);
+            mediaCache.setMetadata({
+              mediaKey: messageMediaKey,
+              mimetype: media.mimetype,
+              filename: media.filename,
+              timestamp: Date.now()
+            });
+          }
+        }
+      } else if (message.hasMedia) {
+        // No media key but message has media, try direct download
+        console.log("No media key found, trying direct download...");
+        media = await message.downloadMedia();
+      }
+      
+      if (!media) {
+        throw new Error("Failed to download media or media not found");
+      }
+    }
 
+    // Store metadata and media in cache if we have media
+    if (media) {
+      const mediaKeyToUse = rawData.mediaKey || (media as any).mediaKey;
+      if (mediaKeyToUse) {
+        // Store metadata
+        mediaCache.setMetadata({
+          mediaKey: mediaKeyToUse,
+          mimetype: media.mimetype,
+          filename: media.filename,
+          timestamp: Date.now()
+        });
+        
+        // Store media content
+        mediaCache.set(mediaKeyToUse, media);
+      }
+    }
+
+    console.log("message", message);
+    console.log("media", media);
     let summary = "";
     switch (media.mimetype) {
       case "video/mp4":
       case "video/quicktime":
         console.log("Processing video...");
-        const dataText = await parseVideo(media.data);
-
+        const timestamp = Date.now();
+        const videoDir = path.join(__dirname, "../assets/video");
+        const videoPath = path.join(videoDir, `${timestamp}.mp4`);
+        
+        // Save video file for frame extraction if needed
+        if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
+        fs.writeFileSync(videoPath, Buffer.from(media.data, "base64"));
+        
+        const dataText = await parseVideoToMP3toText(media.data);
         let allText = "";
 
         for (const filePath of dataText) {
@@ -114,7 +189,62 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
 
           allText += result + "\n\n";
         }
-        summary = allText;
+
+        // Check if content is related to news/hoax
+        const isNewsRelated = await askingAI({
+          input: allText,
+          prompt: "Analyze if this content is related to news or claims that need fact-checking. Return only 'YES' if it's related to news/claims that need verification, or 'NO' if it's just casual conversation, entertainment, or unrelated content."
+        });
+
+        if (isNewsRelated.trim() === 'NO') {
+          console.log("Content not related to news/hoax, extracting frames...");
+          
+          // Extract frames from video
+          // Use existing timestamp from above
+          const framesDir = path.join(__dirname, "../assets/frames", `${timestamp}`);
+          if (!fs.existsSync(framesDir)) fs.mkdirSync(framesDir, { recursive: true });
+
+          // Get video duration first
+          const videoDuration = await new Promise<number>((resolve, reject) => {
+            Ffmpeg.ffprobe(videoPath, (err, metadata) => {
+              if (err) reject(err);
+              resolve(metadata.format.duration || 0);
+            });
+          });
+
+          // Calculate number of screenshots (one every 5 seconds)
+          const screenshotCount = Math.max(1, Math.floor(videoDuration / 5));
+
+          await new Promise<void>((resolve, reject) => {
+            Ffmpeg(videoPath)
+              .screenshots({
+                count: screenshotCount,
+                timemarks: Array.from({length: screenshotCount}, (_, i) => i * 5), // take screenshot every 5 seconds
+                folder: framesDir,
+                filename: 'frame-%i.jpg'
+              })
+              .on('end', () => resolve())
+              .on('error', (err) => reject(err));
+          });
+
+          // Process each frame with OCR
+          const frameFiles = fs.readdirSync(framesDir)
+            .filter(file => file.endsWith('.jpg'))
+            .map(file => path.join(framesDir, file));
+
+          let frameTexts = '';
+          for (const framePath of frameFiles) {
+            const frameBuffer = fs.readFileSync(framePath);
+            const frameText = await extractTextFromImage(frameBuffer.toString('base64'));
+            if (frameText.trim()) {
+              frameTexts += frameText + '\n\n';
+            }
+          }
+
+          summary = frameTexts || allText;
+        } else {
+          summary = allText;
+        }
 
         break;
       case "image/jpeg":

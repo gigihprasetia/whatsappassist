@@ -3,7 +3,7 @@ import qrcode from "qrcode-terminal";
 import { askingAI, searchArticleWithGoogleAndAI } from "./ai_agent";
 import { analyzeHoaxMessage } from "./parser";
 import { promptData } from "../utils/prompt";
-import { getArticleContent } from "./scrap";
+import { getArticle, getArticleContent } from "./scrap";
 
 const { Client, LocalAuth } = WhatsAppWebJS;
 
@@ -66,20 +66,32 @@ wa_client.on("message_create", async (msg) => {
         //   wa_client.sendMessage(from, source.link);
         // });
       } else {
-        if (msg.body.startsWith("https") || msg.body.startsWith("http")) {
-          const summary = await getArticleContent(rawQuery);
+        if (rawQuery.startsWith("https") || rawQuery.startsWith("http")) {
+          // const summary = await getArticleContent(rawQuery);
+          const summary = await getArticle(rawQuery);
+
+          if (!summary.title && !summary.content) {
+            wa_client.sendMessage(from, `title artikel tidak ditemukan`);
+            return;
+          }
+
+          const getClearContent = await askingAI({
+            input: `ambil bagan content nya ${summary.content}`,
+          });
+
           const result = await askingAI({
-            input: summary,
+            input: `title : ${summary.title}, content:${getClearContent}`,
             prompt: promptData.checkHoax,
           });
+
           wa_client.sendMessage(from, result);
         } else {
           const query = rawQuery;
           const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(query);
           wa_client.sendMessage(from, hoaxCheckFromKompas.summerize);
-          hoaxCheckFromKompas?.source?.forEach((source: any) => {
-            wa_client.sendMessage(from, source.link);
-          });
+          // hoaxCheckFromKompas?.source?.forEach((source: any) => {
+          //   wa_client.sendMessage(from, source.link);
+          // });
         }
       }
     } catch (err) {

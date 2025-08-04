@@ -15,6 +15,7 @@
   "type": "module",
   "devDependencies": {
     "@types/cheerio": "^0.22.35",
+    "@types/cors": "^2.8.19",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^24.1.0",
@@ -30,7 +31,10 @@
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@types/body-parser": "^1.19.6",
     "@types/express": "^5.0.3",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "fluent-ffmpeg": "^2.1.3",

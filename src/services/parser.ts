@@ -98,13 +98,6 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
     let media;
     const rawData = (message as any)._data || {};
     
-    console.log("message details:", {
-      id: message.id,
-      hasMedia: message.hasMedia,
-      mediaKey: rawData.mediaKey,
-      type: message.type
-    });
-    
     // Check if we have cached media passed in
     if ((message as any).cachedMedia) {
       console.log("Using provided cached media");
@@ -265,7 +258,7 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
         console.log("Unsupported media type:", media.mimetype);
         return "❌ Tipe media tidak didukung: " + media.mimetype;
     }
-
+    console.log("summary", summary);
     return (
       summary || "❌ Tidak ada konten yang dapat dianalisis dari media ini."
     );

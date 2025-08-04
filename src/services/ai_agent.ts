@@ -62,23 +62,42 @@ export async function searchArticleWithGoogleAndAI(
     let articleSummaries = "";
 
     for (const site of FACT_CHECK_SITES) {
-      const query = `${summary} site:${site}`;
+      // Clean up mentions, phone numbers and other unnecessary text
+      const cleanSummary = summary
+        .replace(/@\d+/g, '') // Remove phone numbers/mentions
+        .replace(/sairing/gi, '') // Remove trigger word
+        .replace(/[^\w\s]/g, ' ') // Replace special chars with space
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+      console.log('Clean query:', cleanSummary);
+      const query = `${cleanSummary} site:${site}`;
 
       // const query = `${summary}`;
 
       console.log(`mencari query ::: ${query}`);
-      const response = await axios.get(
-        "https://www.googleapis.com/customsearch/v1",
-        {
-          params: {
-            key: GOOGLE_SEARCH_API_KEY,
-            cx: GOOGLE_CSE_ID,
-            q: query,
+      let response;
+      try {
+        response = await axios.get(
+          "https://www.googleapis.com/customsearch/v1",
+          {
+            params: {
+              key: GOOGLE_SEARCH_API_KEY,
+              cx: GOOGLE_CSE_ID,
+              q: query,
+            },
+          }
+        );
+      } catch (error) {
+        console.error("❌ Error:", error);
+        response = {
+          data: {
+            items: [],
           },
-        }
-      );
+        };
+      }
 
       console.log(response.data.items?.length, "items");
+      console.log(response.data.items, "items");
 
       if (response.data.items?.length) {
         allArticles = allArticles.concat(response.data.items).slice(0, 5);
@@ -95,9 +114,8 @@ export async function searchArticleWithGoogleAndAI(
 
     // Gabungkan ringkasan dan sumber
     allArticles.forEach((item, idx) => {
-      articleSummaries += `Artikel ${idx + 1}: ${item.title}\n${
-        item.snippet
-      }\n\n`;
+      articleSummaries += `Artikel ${idx + 1}: ${item.title}\n${item.snippet
+        }\n\n`;
       sourcesList += `${idx + 1}. ${item.link}\n`;
     });
 

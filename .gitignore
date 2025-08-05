@@ -6,7 +6,8 @@ node_modules/
 
 
 .env
-
+assets/
+cache/
 
 dist/
 build/

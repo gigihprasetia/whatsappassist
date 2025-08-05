@@ -114,10 +114,28 @@ export async function searchArticleWithGoogleAndAI(
 
     // Gabungkan ringkasan dan sumber
     allArticles.forEach((item, idx) => {
-      articleSummaries += `Artikel ${idx + 1}: ${item.title}\n${item.snippet
-        }\n\n`;
+      // Clean up the title by removing common fact-checking tags
+      const cleanTitle = item.title
+        .replace(/\[HOAKS\]/gi, '')
+        .replace(/\[DISINFORMASI\]/gi, '')
+        .replace(/\[FAKTA\]/gi, '')
+        .replace(/\[CEK FAKTA\]/gi, '')
+        .replace(/\[SALAH\]/gi, '')
+        .replace(/\[BENAR\]/gi, '')
+        .replace(/\[\s*[^\]]*\s*\]/g, '') // Remove any remaining bracketed text
+        .replace(/\s+/g, ' ')
+        .trim();
+      articleSummaries += `Artikel ${idx + 1}: ${cleanTitle}\n${item.snippet}\n\n`;
       sourcesList += `${idx + 1}. ${item.link}\n`;
     });
+
+    // Get the original query for the prompt
+    const queryForPrompt = summary
+      .replace(/@\d+/g, '') // Remove phone numbers/mentions
+      .replace(/sairing/gi, '') // Remove trigger word
+      .replace(/[^\w\s]/g, ' ') // Replace special chars with space
+      .replace(/\s+/g, ' ') // Normalize spaces
+      .trim();
 
     const aiPrompt = `
 Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
@@ -127,7 +145,7 @@ ${articleSummaries}
 Sumber:
 ${sourcesList}
 
-🔍 Analisis: Apakah topik ini merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
+🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
 
 KESIMPULAN: HOAX / TIDAK HOAX.
     `.trim();

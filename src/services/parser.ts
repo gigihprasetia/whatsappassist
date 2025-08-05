@@ -97,7 +97,7 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
   try {
     let media;
     const rawData = (message as any)._data || {};
-    
+
     // Check if we have cached media passed in
     if ((message as any).cachedMedia) {
       console.log("Using provided cached media");
@@ -131,7 +131,7 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
         console.log("No media key found, trying direct download...");
         media = await message.downloadMedia();
       }
-      
+
       if (!media) {
         throw new Error("Failed to download media or media not found");
       }
@@ -148,7 +148,7 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
           filename: media.filename,
           timestamp: Date.now()
         });
-        
+
         // Store media content
         mediaCache.set(mediaKeyToUse, media);
       }
@@ -161,14 +161,39 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
       case "video/mp4":
       case "video/quicktime":
         console.log("Processing video...");
-        const timestamp = Date.now();
+        // Get timestamp from cache if available
+        const mediaKeyToUse = rawData.mediaKey || (media as any).mediaKey;
+        const metadata = mediaKeyToUse ? mediaCache.getMetadata(mediaKeyToUse) : null;
+        const timestamp = metadata?.timestamp || Date.now();
         const videoDir = path.join(__dirname, "../assets/video");
         const videoPath = path.join(videoDir, `${timestamp}.mp4`);
-        
+        const framesDir = path.join(__dirname, "../assets/frames", `${timestamp}`);
+
+        // Check if we already have processed this video
+        if (fs.existsSync(videoPath) && fs.existsSync(framesDir)) {
+          console.log("Using existing processed video assets...");
+          const frameFiles = fs.readdirSync(framesDir)
+            .filter(file => file.endsWith('.jpg'))
+            .map(file => path.join(framesDir, file));
+
+          let frameTexts = '';
+          for (const framePath of frameFiles) {
+            const frameBuffer = fs.readFileSync(framePath);
+            const frameText = await extractTextFromImage(frameBuffer.toString('base64'));
+            if (frameText.trim()) {
+              frameTexts += frameText + '\n\n';
+            }
+          }
+          summary = frameTexts;
+          break;
+        }
+
         // Save video file for frame extraction if needed
         if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
-        fs.writeFileSync(videoPath, Buffer.from(media.data, "base64"));
-        
+        if (!fs.existsSync(videoPath)) {
+          fs.writeFileSync(videoPath, Buffer.from(media.data, "base64"));
+        }
+
         const dataText = await parseVideoToMP3toText(media.data);
         let allText = "";
 
@@ -179,7 +204,6 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
             model: "gpt-4o-transcribe",
             response_format: "text",
           });
-
           allText += result + "\n\n";
         }
 
@@ -191,34 +215,34 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
 
         if (isNewsRelated.trim() === 'NO') {
           console.log("Content not related to news/hoax, extracting frames...");
-          
-          // Extract frames from video
-          // Use existing timestamp from above
-          const framesDir = path.join(__dirname, "../assets/frames", `${timestamp}`);
-          if (!fs.existsSync(framesDir)) fs.mkdirSync(framesDir, { recursive: true });
 
-          // Get video duration first
-          const videoDuration = await new Promise<number>((resolve, reject) => {
-            Ffmpeg.ffprobe(videoPath, (err, metadata) => {
-              if (err) reject(err);
-              resolve(metadata.format.duration || 0);
+          // Extract frames from video if not already done
+          if (!fs.existsSync(framesDir)) {
+            fs.mkdirSync(framesDir, { recursive: true });
+
+            // Get video duration first
+            const videoDuration = await new Promise<number>((resolve, reject) => {
+              Ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                if (err) reject(err);
+                resolve(metadata.format.duration || 0);
+              });
             });
-          });
 
-          // Calculate number of screenshots (one every 5 seconds)
-          const screenshotCount = Math.max(1, Math.floor(videoDuration / 5));
+            // Calculate number of screenshots (one every 5 seconds)
+            const screenshotCount = Math.max(1, Math.floor(videoDuration / 5));
 
-          await new Promise<void>((resolve, reject) => {
-            Ffmpeg(videoPath)
-              .screenshots({
-                count: screenshotCount,
-                timemarks: Array.from({length: screenshotCount}, (_, i) => i * 5), // take screenshot every 5 seconds
-                folder: framesDir,
-                filename: 'frame-%i.jpg'
-              })
-              .on('end', () => resolve())
-              .on('error', (err) => reject(err));
-          });
+            await new Promise<void>((resolve, reject) => {
+              Ffmpeg(videoPath)
+                .screenshots({
+                  count: screenshotCount,
+                timemarks: Array.from({ length: screenshotCount }, (_, i) => i * 5), // take screenshot every 5 seconds
+                  folder: framesDir,
+                  filename: 'frame-%i.jpg'
+                })
+                .on('end', () => resolve())
+                .on('error', (err) => reject(err));
+            });
+          }
 
           // Process each frame with OCR
           const frameFiles = fs.readdirSync(framesDir)

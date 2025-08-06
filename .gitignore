@@ -19,3 +19,4 @@ build/
 
 .wwebjs_auth/
 .wwebjs_cache/
+data/known_groups.json

@@ -10,11 +10,12 @@ import axios from "axios";
 import wa_client from "./wa_client";
 
 const FACT_CHECK_SITES = [
-  "komdigi.go.id",
-  "kompas.com",
-  "kominfo.go.id",
-  "news.detik.com",
-  "liputan6.com",
+  "*.komdigi.go.id",
+  "*.kompas.com",
+  "*.kominfo.go.id",
+  "*.news.detik.com",
+  "*.liputan6.com",
+  // "*.cnn.com",
 ];
 
 export const AI_AGENT = new OpenAI({
@@ -41,7 +42,7 @@ export const askingAI = async ({
           content: input,
         },
       ],
-      temperature: 0.2,
+      temperature: 0.5,
     });
 
     const content = response.choices[0].message?.content || "";
@@ -70,7 +71,7 @@ export async function searchArticleWithGoogleAndAI(
         .replace(/\s+/g, ' ') // Normalize spaces
         .trim();
       console.log('Clean query:', cleanSummary);
-      const query = `${cleanSummary} site:${site}`;
+      const query = `${cleanSummary}`;
 
       // const query = `${summary}`;
 
@@ -84,6 +85,7 @@ export async function searchArticleWithGoogleAndAI(
               key: GOOGLE_SEARCH_API_KEY,
               cx: GOOGLE_CSE_ID,
               q: query,
+              siteSearch: site,
             },
           }
         );
@@ -96,7 +98,7 @@ export async function searchArticleWithGoogleAndAI(
         };
       }
 
-      console.log(response.data.items?.length, "items");
+      console.log(response);
       console.log(response.data.items, "items");
 
       if (response.data.items?.length) {
@@ -107,7 +109,7 @@ export async function searchArticleWithGoogleAndAI(
     if (!allArticles.length) {
       return {
         summerize:
-          "Tidak ditemukan artikel terkait dari situs pemeriksa fakta.",
+          "Waduh, maaf. Saya belum bisa mengerti hal yang kamu tanyakan, apakah boleh ketik kesimpulan dari hal tersebut?",
         source: [],
       };
     }
@@ -125,7 +127,7 @@ export async function searchArticleWithGoogleAndAI(
         .replace(/\[\s*[^\]]*\s*\]/g, '') // Remove any remaining bracketed text
         .replace(/\s+/g, ' ')
         .trim();
-      articleSummaries += `Artikel ${idx + 1}: ${cleanTitle}\n${item.snippet}\n\n`;
+      articleSummaries += `Artikel ${idx + 1}: ${cleanTitle}\n${item.snippet}\n\n${item.link}\n`;
       sourcesList += `${idx + 1}. ${item.link}\n`;
     });
 
@@ -137,21 +139,37 @@ export async function searchArticleWithGoogleAndAI(
       .replace(/\s+/g, ' ') // Normalize spaces
       .trim();
 
-    const aiPrompt = `
-Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
+//     const aiPrompt = `
+// Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
 
+// ${articleSummaries}
+
+// Sumber:
+// ${sourcesList}
+// 🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
+
+// KESIMPULAN: HOAX / TIDAK HOAX.
+//     `.trim();
+const aiPrompt = `
+gunakan ringkasan informasi ini untuk mengetahui apakah pernyataan ini benar atau tidak benar. kalau tidak benar kesimpulannya adalah HOAX, kalau benar berarti TIDAK HOAX
 ${articleSummaries}
 
-Sumber:
-${sourcesList}
+- Apakah ini hoax atau bukan?
+- Apa alasannya?
+- tulislah sumber informasinya dan link nya
 
-🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
+- kalau tidak ada informasinya/artikel, jawab sebisanya
+- tidak usah disebutkan menurut informasi ke berapa, general saja "menurut informasi yang ada"
+- Gunakan bahasa yang santai
+- di akhir kasih kesimpulan singkat: HOAX atau TIDAK HOAX
+- gunakan emoji, bold text yang penting, italic untuk bahasa asing, untuk format whatsapp message
 
-KESIMPULAN: HOAX / TIDAK HOAX.
     `.trim();
-
-    const aiAnalysis = await askingAI({ input: aiPrompt });
-    return { summerize: aiAnalysis, source: allArticles };
+    const aiAnalysis = await askingAI({ 
+      input: `Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas`, 
+    prompt: aiPrompt });
+    
+      return { summerize: aiAnalysis, source: allArticles };
   } catch (error: any) {
     console.error(
       "Gagal mencari artikel atau menganalisis dengan AI:",

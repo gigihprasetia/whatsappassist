@@ -1,6 +1,7 @@
 import fs from "fs";
 import { exec } from "child_process";
-import { Buffer } from "buffer";
+import { parsePDF } from "./pdf_parser";
+import { analyzeImageWithGPT4 } from "./openai_service";
 import Tesseract from "tesseract.js";
 import Ffmpeg from "fluent-ffmpeg";
 
@@ -78,11 +79,7 @@ export async function parseVideoToMP3toText(videoData: string): Promise<string[]
   });
 }
 
-export async function parsePDF(base64Data: string): Promise<{ text: string }> {
-  const buffer = Buffer.from(base64Data, "base64");
-  const data = await pdf(buffer); // pdf-extraction return { text, numpages, info, metadata, version }
-  return { text: data.text };
-}
+// PDF parsing moved to pdf_parser.ts
 export async function extractTextFromImage(imageData: string): Promise<string> {
   return new Promise((resolve, reject) => {
     Tesseract.recognize(Buffer.from(imageData, "base64"), "eng")
@@ -267,7 +264,13 @@ export async function analyzeHoaxMessage(message: any): Promise<any> {
       case "image/jpeg":
       case "image/png":
         console.log("Processing image...");
-        summary = await extractTextFromImage(media.data);
+        const textFromOCR = await extractTextFromImage(media.data);
+        const imageAnalysis = await analyzeImageWithGPT4(media.data);
+        summary = `Analisis Gambar:
+${imageAnalysis}
+
+Teks yang terdeteksi:
+${textFromOCR}`;
         break;
       case "application/pdf":
         console.log("Processing PDF...");

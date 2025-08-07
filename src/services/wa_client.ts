@@ -1,17 +1,25 @@
 import WhatsAppWebJS from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
 import { askingAI, searchArticleWithGoogleAndAI } from "./ai_agent";
-import { analyzeHoaxMessage } from "./parser";
+import { parseMessage } from "./parser";
 import { promptData } from "../utils/prompt";
 import { getArticle, getArticleContent } from "./scrap";
 
 async function analyzeMediaMessage(message: any): Promise<string> {
-  const summary = await analyzeHoaxMessage(message) || "";
+  // Get media content summary
+  const summary = await parseMessage(message) || "";
   console.log("summary", summary);
+
+  // Include message body as context if available
+  const messageContext = message.body ? `${message.body}\n\n` : '';
+  
+  // Get headline from the combined context
   const getHeadline = await askingAI({
     prompt: promptData.getHeadline,
-    input: `${summary}`,
+    input: summary,
   });
+
+  // Search and analyze
   const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(getHeadline);
   const response = hoaxCheckFromKompas.summerize;
 
@@ -100,10 +108,15 @@ wa_client.on("message", async (msg) => {
             // Check for media in quoted message first
             if (quotedMsg.hasMedia) {
               console.log("Processing quoted message with media");
+              const messageContext = quotedMsg.body.replace("sairing", "") ? `Konteks pesan: ${quotedMsg.body}\n\n` : '';
               response = await analyzeMediaMessage(quotedMsg);
+              if (messageContext) {
+                console.log("Adding message context to media analysis");
+                response = messageContext + response;
+              }
             } else {
               // Use text content for analysis
-              rawQuery = quotedMsg.body;
+              rawQuery = quotedMsg.body.replace("sairing", "");
               if (rawQuery.startsWith("https") || rawQuery.startsWith("http")) {
                 const summary = await getArticle(rawQuery);
                 if (!summary.title && !summary.content) {
@@ -143,7 +156,13 @@ wa_client.on("message", async (msg) => {
 
         // Check for media in original message
         if (messageToAnalyze.hasMedia) {
+          console.log("Processing direct message with media");
+          const messageContext = messageToAnalyze.body.replace("sairing", "") ? `Konteks pesan: ${messageToAnalyze.body}\n\n` : '';
           response = await analyzeMediaMessage(messageToAnalyze);
+          if (messageContext) {
+            console.log("Adding message context to media analysis");
+            response = messageContext + response;
+          }
         } else {
           // Use text content for analysis
           rawQuery = body;

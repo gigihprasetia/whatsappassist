@@ -90,7 +90,7 @@ export async function extractTextFromImage(imageData: string): Promise<string> {
 
 import { mediaCache } from '../utils/media_cache';
 
-export async function analyzeHoaxMessage(message: any): Promise<any> {
+export async function parseMessage(message: any): Promise<any> {
   try {
     let media;
     const rawData = (message as any)._data || {};

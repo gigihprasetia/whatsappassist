@@ -12,6 +12,10 @@ import wa_client from "./wa_client";
 const FACT_CHECK_SITES = [
   "*.komdigi.go.id",
   "*.kompas.com",
+  "*.kompas.tv",
+  "*.kompas.co.id",
+  "*.kompas.id",
+
   "*.kominfo.go.id",
   "*.news.detik.com",
   "*.liputan6.com",
@@ -42,7 +46,7 @@ export const askingAI = async ({
           content: input,
         },
       ],
-      temperature: 0.5,
+      temperature: 1,
     });
 
     const content = response.choices[0].message?.content || "";
@@ -139,19 +143,19 @@ export async function searchArticleWithGoogleAndAI(
       .replace(/\s+/g, ' ') // Normalize spaces
       .trim();
 
-//     const aiPrompt = `
-// Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
+    //     const aiPrompt = `
+    // Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
 
-// ${articleSummaries}
+    // ${articleSummaries}
 
-// Sumber:
-// ${sourcesList}
-// 🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
+    // Sumber:
+    // ${sourcesList}
+    // 🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
 
-// KESIMPULAN: HOAX / TIDAK HOAX.
-//     `.trim();
-const aiPrompt = `
-gunakan ringkasan informasi ini untuk mengetahui apakah pernyataan ini benar atau tidak benar. kalau tidak benar kesimpulannya adalah HOAX, kalau benar berarti TIDAK HOAX
+    // KESIMPULAN: HOAX / TIDAK HOAX.
+    //     `.trim();
+    const aiPrompt = `
+Kamu adalah AI hoax detector, dan telah menemukan beberapa informasi dari website terpercaya. gunakan ringkasan informasi ini untuk mengetahui apakah pernyataan ini benar atau tidak benar. kalau tidak benar kesimpulannya adalah HOAX, kalau benar berarti TIDAK HOAX
 ${articleSummaries}
 
 - Apakah ini hoax atau bukan?
@@ -165,11 +169,12 @@ ${articleSummaries}
 - gunakan emoji, bold text yang penting, italic untuk bahasa asing, untuk format whatsapp message
 
     `.trim();
-    const aiAnalysis = await askingAI({ 
-      input: `Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas`, 
-    prompt: aiPrompt });
-    
-      return { summerize: aiAnalysis, source: allArticles };
+    const aiAnalysis = await askingAI({
+      input: `Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas`,
+      prompt: aiPrompt
+    });
+
+    return { summerize: aiAnalysis, source: allArticles };
   } catch (error: any) {
     console.error(
       "Gagal mencari artikel atau menganalisis dengan AI:",

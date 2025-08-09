@@ -1,6 +1,6 @@
 import mime from "mime-types";
 import fs from "fs";
-import { parsePDF } from "./parser";
+import { parsePDF } from "./pdf_parser";
 
 import axios from "axios";
 

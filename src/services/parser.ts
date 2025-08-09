@@ -306,7 +306,7 @@ export async function parseMessage(message: any): Promise<any> {
               const frameText = await extractTextFromImage(frameBase64);
               
               // Analyze image with GPT-4 Vision
-              const frameAnalysis = await analyzeImageWithGPT4(frameBase64);
+              const frameAnalysis = await analyzeImageWithGPT4(Buffer.from(frameBase64, 'base64'));
               
               if (frameText.trim() || frameAnalysis.trim()) {
                 frameTexts += `Frame Analysis:\n${frameAnalysis}\n\nDetected Text:\n${frameText}\n\n---\n\n`;

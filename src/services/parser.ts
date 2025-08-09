@@ -15,19 +15,29 @@ import { AI_AGENT, askingAI } from "./ai_agent";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function parseVideoToMP3toText(videoData: string): Promise<string[]> {
+export async function parseVideoToMP3toText(videoData: string, mediaKey?: string): Promise<string[]> {
   const timestamp = Date.now();
   const videoDir = path.join(__dirname, "../assets/video");
   const audioDir = path.join(__dirname, "../assets/audio");
-  const outputDir = path.join(audioDir, `${timestamp}_segments`);
+  const filePrefix = mediaKey ? mediaKey.replace(/[^a-zA-Z0-9]/g, '_') : timestamp;
+  const outputDir = path.join(audioDir, `${filePrefix}_segments`);
 
   // Buat folder jika belum ada
   if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
   if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-  const videoPath = path.join(videoDir, `${timestamp}.mp4`);
-  const audioPath = path.join(audioDir, `${timestamp}.mp3`);
+  const videoPath = path.join(videoDir, `${filePrefix}.mp4`);
+  const audioPath = path.join(audioDir, `${filePrefix}.mp3`);
+
+  // Check if we already have the audio segments cached
+  if (mediaKey) {
+    const cachedSegments = mediaCache.get(`${mediaKey}_segments`);
+    if (cachedSegments) {
+      console.log('✅ Using cached audio segments');
+      return cachedSegments;
+    }
+  }
 
   // Simpan video
   fs.writeFileSync(videoPath, Buffer.from(videoData, "base64"));
@@ -69,6 +79,15 @@ export async function parseVideoToMP3toText(videoData: string): Promise<string[]
           .filter((file) => file.endsWith(".mp3"))
           .map((file) => path.join(outputDir, file))
           .sort();
+        // Cache the segments if we have a mediaKey
+        if (mediaKey) {
+          mediaCache.set(`${mediaKey}_segments`, files);
+          mediaCache.setMetadata({
+            mediaKey: `${mediaKey}_segments`,
+            mimetype: 'audio/mp3',
+            timestamp: Date.now()
+          });
+        }
         resolve(files);
       })
       .on("error", (err) => {
@@ -89,31 +108,38 @@ export async function extractTextFromImage(imageData: string): Promise<string> {
 }
 
 import { mediaCache } from '../utils/media_cache';
+import { promptData } from "../utils/prompt";
 
 export async function parseMessage(message: any): Promise<any> {
   try {
     let media;
+    let messageMediaKey: string | undefined;
     const rawData = (message as any)._data || {};
 
     // Check if we have cached media passed in
     if ((message as any).cachedMedia) {
       console.log("Using provided cached media");
       media = (message as any).cachedMedia;
-    } else {
+    } else if (message.hasMedia) {
       // Get media key from the message
-      const messageMediaKey = rawData.mediaKey || rawData.quotedMsg?.mediaKey;
+      messageMediaKey = rawData.mediaKey || rawData.quotedMsg?.mediaKey;
+      console.log("messageMediaKey", messageMediaKey);
+      // Try to get from cache first if we have a key
       if (messageMediaKey) {
-        // Try to get from cache first
         const cachedMedia = mediaCache.get(messageMediaKey);
         if (cachedMedia) {
           console.log("Using cached media data");
           media = cachedMedia;
-        } else {
-          // If media not in cache but we have a key, try downloading
-          console.log("Media not in cache, downloading...");
+        }
+      }
+
+      // If not found in cache, try downloading
+      if (!media) {
+        console.log("Media not in cache or no key, downloading...");
+        try {
           media = await message.downloadMedia();
-          if (media) {
-            // Store in cache
+          // Store in cache if we have a key
+          if (media && messageMediaKey) {
             mediaCache.set(messageMediaKey, media);
             mediaCache.setMetadata({
               mediaKey: messageMediaKey,
@@ -122,16 +148,15 @@ export async function parseMessage(message: any): Promise<any> {
               timestamp: Date.now()
             });
           }
+        } catch (err: any) {
+          console.error("Error downloading media:", err);
+          throw new Error("Failed to download media: " + (err.message || String(err)));
         }
-      } else if (message.hasMedia) {
-        // No media key but message has media, try direct download
-        console.log("No media key found, trying direct download...");
-        media = await message.downloadMedia();
       }
+    }
 
-      if (!media) {
-        throw new Error("Failed to download media or media not found");
-      }
+    if (!media) {
+      throw new Error("No media found in message");
     }
 
     // Store metadata and media in cache if we have media
@@ -154,6 +179,8 @@ export async function parseMessage(message: any): Promise<any> {
     console.log("message", message);
     console.log("media", media);
     let summary = "";
+    let frameFiles: string[] = [];
+    let frameTexts = "";
     switch (media.mimetype) {
       case "video/mp4":
       case "video/quicktime":
@@ -191,7 +218,7 @@ export async function parseMessage(message: any): Promise<any> {
           fs.writeFileSync(videoPath, Buffer.from(media.data, "base64"));
         }
 
-        const dataText = await parseVideoToMP3toText(media.data);
+        const dataText = await parseVideoToMP3toText(media.data, messageMediaKey);
         let allText = "";
 
         for (const filePath of dataText) {
@@ -213,8 +240,28 @@ export async function parseMessage(message: any): Promise<any> {
         if (isNewsRelated.trim() === 'NO') {
           console.log("Content not related to news/hoax, extracting frames...");
 
-          // Extract frames from video if not already done
-          if (!fs.existsSync(framesDir)) {
+          // Check if we have cached frames and OCR results
+          let frameFiles: string[] = [];
+          let cachedOCRResults = '';
+          
+          if (messageMediaKey) {
+            // Check for cached frames
+            const cachedFrames = mediaCache.get(`${messageMediaKey}_frames`);
+            if (cachedFrames) {
+              console.log('✅ Using cached video frames');
+              frameFiles = cachedFrames;
+              
+              // Check for cached OCR results
+              const cachedOCR = mediaCache.get(`${messageMediaKey}_ocr_results`);
+              if (cachedOCR) {
+                console.log('✅ Using cached OCR results');
+                cachedOCRResults = cachedOCR;
+              }
+            }
+          }
+
+          // Extract frames from video if not cached
+          if (frameFiles.length === 0) {
             fs.mkdirSync(framesDir, { recursive: true });
 
             // Get video duration first
@@ -232,32 +279,47 @@ export async function parseMessage(message: any): Promise<any> {
               Ffmpeg(videoPath)
                 .screenshots({
                   count: screenshotCount,
-                timemarks: Array.from({ length: screenshotCount }, (_, i) => i * 5), // take screenshot every 5 seconds
+                  timemarks: Array.from({ length: screenshotCount }, (_, i) => i * 5), // take screenshot every 5 seconds
                   folder: framesDir,
                   filename: 'frame-%i.jpg'
                 })
-                .on('end', () => resolve())
+                .on('end', () => {
+                  // Get list of generated frame files
+                  frameFiles = fs.readdirSync(framesDir)
+                    .filter(file => file.endsWith('.jpg'))
+                    .map(file => path.join(framesDir, file));
+                  resolve();
+                })
                 .on('error', (err) => reject(err));
             });
           }
 
-          // Process each frame with OCR
-          const frameFiles = fs.readdirSync(framesDir)
-            .filter(file => file.endsWith('.jpg'))
-            .map(file => path.join(framesDir, file));
-
-          let frameTexts = '';
-          for (const framePath of frameFiles) {
-            const frameBuffer = fs.readFileSync(framePath);
-            const frameText = await extractTextFromImage(frameBuffer.toString('base64'));
-            if (frameText.trim()) {
-              frameTexts += frameText + '\n\n';
+          // If we don't have cached OCR results, process frames
+          let frameTexts = cachedOCRResults;
+          if (!frameTexts && frameFiles.length > 0) {
+            frameTexts = '';
+            for (const framePath of frameFiles) {
+              const frameBuffer = fs.readFileSync(framePath);
+              const frameBase64 = frameBuffer.toString('base64');
+              
+              // Extract text using OCR
+              const frameText = await extractTextFromImage(frameBase64);
+              
+              // Analyze image with GPT-4 Vision
+              const frameAnalysis = await analyzeImageWithGPT4(frameBase64);
+              
+              if (frameText.trim() || frameAnalysis.trim()) {
+                frameTexts += `Frame Analysis:\n${frameAnalysis}\n\nDetected Text:\n${frameText}\n\n---\n\n`;
+              }
             }
-          }
+            
 
-          summary = frameTexts || allText;
+          }
+          summary = frameTexts;
+          return { summary: frameTexts, frameFiles, frameTexts, mediaKey: messageMediaKey };
         } else {
           summary = allText;
+          return { summary: allText, frameFiles: [], frameTexts: '', mediaKey: messageMediaKey };
         }
 
         break;
@@ -286,9 +348,12 @@ ${textFromOCR}`;
         return "❌ Tipe media tidak didukung: " + media.mimetype;
     }
     console.log("summary", summary);
-    return (
-      summary || "❌ Tidak ada konten yang dapat dianalisis dari media ini."
-    );
+    return {
+      summary: summary || "❌ Tidak ada konten yang dapat dianalisis dari media ini.",
+      frameFiles: [],
+      frameTexts: '',
+      mediaKey: messageMediaKey
+    };
   } catch (error) {
     console.error("Gagal membaca media:", error);
     return "❌ Gagal membaca media: ";

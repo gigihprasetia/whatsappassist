@@ -4,39 +4,110 @@ import { askingAI, searchArticleWithGoogleAndAI } from "./ai_agent";
 import { parseMessage } from "./parser";
 import { promptData } from "../utils/prompt";
 import { getArticle, getArticleContent } from "./scrap";
+import { mediaCache } from '../utils/media_cache';
 
 async function analyzeMediaMessage(message: any): Promise<string> {
-  // Get media content summary
-  const summary = await parseMessage(message) || "";
-  console.log("summary", summary);
+  try {
+    // Get media content summary
+    const { summary, frameFiles, frameTexts, mediaKey } = await parseMessage(message) || { summary: "", frameFiles: [], frameTexts: "", mediaKey: undefined };
 
-  // Include message body as context if available
-  const messageContext = message.body ? `${message.body}\n\n` : '';
-  
-  // Get headline from the combined context
-  const getHeadline = await askingAI({
-    prompt: promptData.getHeadline,
-    input: summary,
-  });
+    console.log("message", message);
+    console.log("summary", summary);
 
-  // Search and analyze
-  const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(getHeadline);
-  const response = hoaxCheckFromKompas.summerize;
+    // Get headline from the combined context
+    const googleSearchQuery = await askingAI({
+      prompt: promptData.getHeadline,
+      input: summary,
+    });
+    const pointers = await askingAI({
+      prompt: promptData.getPointers,
+      input: summary,
+    });
+    console.log("query", googleSearchQuery);
+    let hoaxCheck = '';
+    // Search for articles and analyze with AI
+    const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(googleSearchQuery);
+    if (hoaxCheckFromGoogle.source.length > 0) {
+      hoaxCheck = hoaxCheckFromGoogle.summerize;
+    } else {
+      const hoaxCheckFromAI = await askingAI({
+        prompt: promptData.checkHoaxWithoutArticles,
+        input: summary,
+      });
+      hoaxCheck = hoaxCheckFromAI;
+    }
+    // Cache frames and OCR results only after successful processing
+    if (mediaKey && frameFiles.length > 0 && hoaxCheckFromGoogle.source.length > 0) {
+      console.log('✅ Caching video frames');
+      mediaCache.set(`${mediaKey}_frames`, frameFiles);
+      mediaCache.setMetadata({
+        mediaKey: `${mediaKey}_frames`,
+        mimetype: 'image/jpeg',
+        timestamp: Date.now()
+      });
 
-  return response;
+      if (frameTexts) {
+        console.log('✅ Caching OCR results');
+        mediaCache.set(`${mediaKey}_ocr_results`, frameTexts);
+        mediaCache.setMetadata({
+          mediaKey: `${mediaKey}_ocr_results`,
+          mimetype: 'text/plain',
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    return hoaxCheck;
+  } catch (error) {
+    console.error('Error processing media message:', error);
+    throw error;
+  }
 }
 
 const { Client, LocalAuth } = WhatsAppWebJS;
+
+// Maximum number of retries for initialization
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000; // 5 seconds
 
 const wa_client = new Client({
   authStrategy: new LocalAuth({
     clientId: "client-two",
   }),
   puppeteer: {
-    args: ["--no-sandbox", "--disable-setuid-sandbox"], // Prevent permission issues
-    timeout: 12000, // Increase timeout to 60 seconds
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-zygote",
+      "--deterministic-fetch",
+      "--disable-features=IsolateOrigins",
+      "--disable-site-isolation-trials"
+    ],
+    timeout: 60000, // Increase timeout to 60 seconds
+    headless: true
   },
 });
+
+// Initialize function with retry logic
+async function initializeWithRetry(retries = MAX_RETRIES): Promise<void> {
+  try {
+    await wa_client.initialize();
+  } catch (error: any) {
+    console.error(`WhatsApp initialization error: ${error.message}`);
+
+    if (retries > 0) {
+      console.log(`Retrying initialization in ${RETRY_DELAY / 1000} seconds... (${retries} attempts remaining)`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return initializeWithRetry(retries - 1);
+    } else {
+      console.error('Max retries reached. Could not initialize WhatsApp client.');
+      throw error;
+    }
+  }
+}
 
 wa_client.on("qr", (qr) => {
   qrcode.generate(qr, { small: true });
@@ -82,7 +153,7 @@ wa_client.on("message", async (msg) => {
   let summary = "";
   const greetingWords = ['halo', 'hi', 'hello', 'hay', 'hei', 'hey', 'assalamualaikum', 'asalamualaikum', 'assalamualaikum', 'asalamualaikum', 'assalam', 'asalam', 'salam', 'slm', 'aslm', 'asw', 'asm', 'assalamualaikum wr wb', 'asalamualaikum wr wb', 'assalamu alaikum', 'asalamu alaikum', 'aslmkm', 'asslmklm', 'p', 'pagi', 'siang', 'sore', 'malam'];
   const isGreeting = greetingWords.some(word => msg.body.startsWith(word)) && msg.body.includes('sairing');
-  
+
   if (isGreeting) {
     console.log('👋 Greeting detected, sending intro message');
     msg.reply(introMessage);
@@ -107,20 +178,20 @@ wa_client.on("message", async (msg) => {
 
             // Check for media in quoted message first
             if (quotedMsg.hasMedia) {
-              console.log("Processing quoted message with media");
+              console.log("Processing quoted message with media 180");
               const messageContext = quotedMsg.body.replace("sairing", "") ? `Konteks pesan: ${quotedMsg.body}\n\n` : '';
               response = await analyzeMediaMessage(quotedMsg);
-              if (messageContext) {
-                console.log("Adding message context to media analysis");
-                response = messageContext + response;
-              }
+              // if (messageContext) {
+              //   console.log("Adding message context to media analysis");
+              //   response = messageContext + response;
+              // }
             } else {
               // Use text content for analysis
               rawQuery = quotedMsg.body.replace("sairing", "");
               if (rawQuery.startsWith("https") || rawQuery.startsWith("http")) {
                 const summary = await getArticle(rawQuery);
                 if (!summary.title && !summary.content) {
-                  msg.reply("title artikel tidak ditemukan");
+                  msg.reply("title berita tidak ditemukan");
                   return;
                 }
                 const getClearContent = await askingAI({
@@ -131,8 +202,8 @@ wa_client.on("message", async (msg) => {
                   prompt: promptData.checkHoax,
                 });
               } else {
-                const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(rawQuery);
-                response = hoaxCheckFromKompas.summerize;
+                const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(rawQuery);
+                response = hoaxCheckFromGoogle.summerize;
               }
             }
 
@@ -180,8 +251,8 @@ wa_client.on("message", async (msg) => {
               prompt: promptData.checkHoax,
             });
           } else {
-            const hoaxCheckFromKompas = await searchArticleWithGoogleAndAI(rawQuery);
-            response = hoaxCheckFromKompas.summerize;
+            const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(rawQuery);
+            response = hoaxCheckFromGoogle.summerize;
           }
         }
 
@@ -220,7 +291,7 @@ import { isKnownGroup, addKnownGroup } from '../utils/group_cache';
 wa_client.on('message', async (message) => {
   if (message.from.endsWith('@g.us')) {
     const chat = await message.getChat();
-    
+
     console.log('👥 Checking group:', chat.id._serialized);
     if (!isKnownGroup(chat.id._serialized)) {
       console.log('✨ New group detected, sending intro message');
@@ -236,16 +307,16 @@ wa_client.on('message', async (message) => {
 wa_client.on("message", async (msg) => {
   const chat = await msg.getChat();
   const messageBody = msg.body.toLowerCase().trim();
-  
+
   // Check for greeting variations
-  
-  
+
+
   // Handle first message in private chats
   if (!chat.isGroup) {
     console.log('📱 Private chat detected');
     const chatMessages = await chat.fetchMessages({ limit: 2 }); // Fetch 2 messages to check if this is first
     console.log('📨 Number of messages in chat:', chatMessages.length);
-    
+
     if (chatMessages.length === 1) {
       console.log('✨ First message in private chat, sending intro');
       chat.sendMessage(introMessage);

@@ -15,11 +15,6 @@ const FACT_CHECK_SITES = [
   "*.kompas.tv",
   "*.kompas.co.id",
   "*.kompas.id",
-
-  "*.kominfo.go.id",
-  "*.news.detik.com",
-  "*.liputan6.com",
-  // "*.cnn.com",
 ];
 
 export const AI_AGENT = new OpenAI({
@@ -102,11 +97,13 @@ export async function searchArticleWithGoogleAndAI(
         };
       }
 
-      console.log(response);
-      console.log(response.data.items, "items");
+      // console.log(response);
 
       if (response.data.items?.length) {
+        console.log("found articles from", site, response.data.items?.length);
         allArticles = allArticles.concat(response.data.items).slice(0, 5);
+      } else {
+        console.log("no articles found from", site);
       }
     }
 
@@ -116,8 +113,8 @@ export async function searchArticleWithGoogleAndAI(
           "Waduh, maaf. Saya belum bisa mengerti hal yang kamu tanyakan, apakah boleh ketik kesimpulan dari hal tersebut?",
         source: [],
       };
-    }
-
+    } else {
+     
     // Gabungkan ringkasan dan sumber
     allArticles.forEach((item, idx) => {
       // Clean up the title by removing common fact-checking tags
@@ -131,7 +128,7 @@ export async function searchArticleWithGoogleAndAI(
         .replace(/\[\s*[^\]]*\s*\]/g, '') // Remove any remaining bracketed text
         .replace(/\s+/g, ' ')
         .trim();
-      articleSummaries += `Artikel ${idx + 1}: ${cleanTitle}\n${item.snippet}\n\n${item.link}\n`;
+      articleSummaries += `Info ${idx + 1}: ${cleanTitle}\n${item.snippet}\n`;
       sourcesList += `${idx + 1}. ${item.link}\n`;
     });
 
@@ -143,41 +140,30 @@ export async function searchArticleWithGoogleAndAI(
       .replace(/\s+/g, ' ') // Normalize spaces
       .trim();
 
-    //     const aiPrompt = `
-    // Berikut adalah hasil pencarian dari beberapa situs pemeriksa fakta terpercaya.
-
-    // ${articleSummaries}
-
-    // Sumber:
-    // ${sourcesList}
-    // 🔍 Analisis: Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas dan tulis di akhir:
-
-    // KESIMPULAN: HOAX / TIDAK HOAX.
-    //     `.trim();
     const aiPrompt = `
-Kamu adalah AI hoax detector, dan telah menemukan beberapa informasi dari website terpercaya. gunakan ringkasan informasi ini untuk mengetahui apakah pernyataan ini benar atau tidak benar. kalau tidak benar kesimpulannya adalah HOAX, kalau benar berarti TIDAK HOAX
-${articleSummaries}
-
+Kamu adalah AI hoax detector, dan telah menemukan beberapa informasi dari website terpercaya. 
+ini adalah ringkasan informasinya ${articleSummaries}
+ini adalah sumber informasinya ${sourcesList}
+- cek informasi dari pengguna apakah hoax atau bukan. kalau tidak benar kesimpulannya adalah HOAX, kalau benar berarti TIDAK HOAX
 - Apakah ini hoax atau bukan?
 - Apa alasannya?
-- tulislah sumber informasinya dan link nya
-
-- kalau tidak ada informasinya/artikel, jawab sebisanya
-- tidak usah disebutkan menurut informasi ke berapa, general saja "menurut informasi yang ada"
-- Gunakan bahasa yang santai
+- tulislah sumber informasinya dan link berita nya nya
+- kalau tidak ada informasinya, jawab sebisanya
+- Gunakan bahasa yang casual
 - di akhir kasih kesimpulan singkat: HOAX atau TIDAK HOAX
 - gunakan emoji, bold text yang penting, italic untuk bahasa asing, untuk format whatsapp message
-
     `.trim();
     const aiAnalysis = await askingAI({
-      input: `Apakah "${queryForPrompt}" merupakan HOAX atau TIDAK HOAX berdasarkan informasi yang tersedia? Berikan penjelasan ringkas`,
+      input: `"${queryForPrompt}" Apakah merupakan HOAX atau TIDAK HOAX? Berikan penjelasan ringkas`,
       prompt: aiPrompt
     });
 
     return { summerize: aiAnalysis, source: allArticles };
+    }
+
   } catch (error: any) {
     console.error(
-      "Gagal mencari artikel atau menganalisis dengan AI:",
+      "Gagal menganalisis dengan AI:",
       error.response?.data || error.message
     );
     throw error;

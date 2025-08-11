@@ -164,14 +164,10 @@
       // tomboll logout: kirim via websocket ke server
       logoutBtn?.addEventListener("click", () => {
         try {
-          // kirim request ke server supaya backend juga logout
-          fetch("/logout", { method: "POST" }).catch((err) =>
-            console.warn("fetch logout failed", err)
-          );
           // langsung beri update pada tab ini (UI snappy)
           handleUpdate({ isLogin: false, qr: undefined });
           // minta server broadcast juga (opsional)
-          socket.send(JSON.stringify({ action: "requestRestart" }));
+          socket.send(JSON.stringify({ action: "logout" }));
         } catch (err) {
           console.error(err);
         }

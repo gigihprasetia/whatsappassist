@@ -56,7 +56,6 @@ wss.on("connection", (ws) => {
   ws.on("message", (message: any) => {
     try {
       const data = JSON.parse(message);
-
       console.log(data);
       if (data.action === "logout") {
         const payload = JSON.stringify({ isLogin: false, qr: undefined });
@@ -65,7 +64,6 @@ wss.on("connection", (ws) => {
             client.send(payload);
           }
         });
-
         wa_client
           .logout()
           .then(() => {

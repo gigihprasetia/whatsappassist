@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WhatsApp QR</title>
+    <style>
+      /* layout */
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f6f8;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+
+      .container {
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        text-align: center;
+        max-width: 360px;
+        width: 100%;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin-bottom: 16px;
+        color: #333;
+      }
+
+      /* QR card: tetap jaga ukuran minimum supaya layout gak "lompat" */
+      #qr-container {
+        min-height: 270px; /* jaga ruang untuk QR / pesan */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+      }
+
+      /* styling image */
+      #qr-img {
+        width: 100%;
+        max-width: 250px;
+        height: auto;
+        margin-top: 10px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        display: block;
+      }
+
+      #qr-message {
+        color: #666;
+        margin-top: 10px;
+      }
+
+      #login-status {
+        margin-top: 8px;
+      }
+
+      button {
+        background: #25d366;
+        color: white;
+        border: none;
+        padding: 10px 18px;
+        font-size: 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      button:hover {
+        background: #1ebe5b;
+      }
+
+      /* util */
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Scan WhatsApp QR</h1>
+
+      <div id="login-status" class="hidden">
+        <p>✅ Sudah login</p>
+        <button id="logout-btn">Logout</button>
+      </div>
+
+      <div id="qr-container">
+        <!-- Selalu render kedua elemen ini (img + pesan), tapi kembalikan src kosong jika tidak ada -->
+        <img
+          id="qr-img"
+          src="<%= qr ? qr : '' %>"
+          alt="WhatsApp QR"
+          class="<%= qr ? '' : 'hidden' %>"
+        />
+        <p id="qr-message" class="<%= qr ? 'hidden' : '' %>">
+          QR belum tersedia atau sudah di-scan.
+        </p>
+      </div>
+    </div>
+
+    <script>
+      const socket = new WebSocket("ws://localhost:3000");
+
+      const qrImg = document.getElementById("qr-img");
+      const qrMsg = document.getElementById("qr-message");
+      const qrContainer = document.getElementById("qr-container");
+      const loginStatus = document.getElementById("login-status");
+      const logoutBtn = document.getElementById("logout-btn");
+
+      socket.addEventListener("open", () => console.log("WebSocket connected"));
+
+      socket.addEventListener("message", (event) => {
+        const data = JSON.parse(event.data);
+        console.log("WS ->", data);
+        handleUpdate(data);
+      });
+
+      socket.addEventListener("close", () => console.log("WebSocket closed"));
+      socket.addEventListener("error", (e) =>
+        console.error("WebSocket error", e)
+      );
+
+      function handleUpdate(data) {
+        // handle isLogin
+        if (typeof data.isLogin !== "undefined") {
+          if (data.isLogin) {
+            // sudah login: sembunyikan QR, tampilkan status
+            qrContainer.classList.add("hidden");
+            loginStatus.classList.remove("hidden");
+          } else {
+            // belum login: tampilkan QR container, sembunyikan status
+            qrContainer.classList.remove("hidden");
+            loginStatus.classList.add("hidden");
+          }
+        }
+
+        // handle qr (reuse img element, jangan append/remove node berulang)
+        if (typeof data.qr !== "undefined") {
+          if (data.qr) {
+            // set src; memastikan kita tidak membuat elemen baru
+            qrImg.src = data.qr;
+            qrImg.classList.remove("hidden");
+            qrMsg.classList.add("hidden");
+          } else {
+            // tidak ada qr
+            qrImg.classList.add("hidden");
+            qrMsg.classList.remove("hidden");
+            // optional: clear src supaya browser tidak keep old image
+            qrImg.removeAttribute("src");
+          }
+        }
+      }
+
+      // tomboll logout: kirim via websocket ke server
+      logoutBtn?.addEventListener("click", () => {
+        try {
+          // kirim request ke server supaya backend juga logout
+          fetch("/logout", { method: "POST" }).catch((err) =>
+            console.warn("fetch logout failed", err)
+          );
+          // langsung beri update pada tab ini (UI snappy)
+          handleUpdate({ isLogin: false, qr: undefined });
+          // minta server broadcast juga (opsional)
+          socket.send(JSON.stringify({ action: "requestRestart" }));
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    </script>
+  </body>
+</html>

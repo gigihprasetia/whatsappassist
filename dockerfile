@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     lsb-release \
     wget \
     xdg-utils \
+    ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
  COPY package*.json ./

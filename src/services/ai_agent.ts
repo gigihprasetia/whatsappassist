@@ -7,7 +7,7 @@ import {
 import { ResponseAI } from "../types";
 import { promptData } from "../utils/prompt";
 import axios from "axios";
-import wa_client from "./wa_client";
+import { wa_client } from "./wa_client";
 
 const FACT_CHECK_SITES = [
   "*.komdigi.go.id",
@@ -64,12 +64,12 @@ export async function searchArticleWithGoogleAndAI(
     for (const site of FACT_CHECK_SITES) {
       // Clean up mentions, phone numbers and other unnecessary text
       const cleanSummary = summary
-        .replace(/@\d+/g, '') // Remove phone numbers/mentions
-        .replace(/sairing/gi, '') // Remove trigger word
-        .replace(/[^\w\s]/g, ' ') // Replace special chars with space
-        .replace(/\s+/g, ' ') // Normalize spaces
+        .replace(/@\d+/g, "") // Remove phone numbers/mentions
+        .replace(/sairing/gi, "") // Remove trigger word
+        .replace(/[^\w\s]/g, " ") // Replace special chars with space
+        .replace(/\s+/g, " ") // Normalize spaces
         .trim();
-      console.log('Clean query:', cleanSummary);
+      console.log("Clean query:", cleanSummary);
       const query = `${cleanSummary}`;
 
       // const query = `${summary}`;
@@ -114,33 +114,32 @@ export async function searchArticleWithGoogleAndAI(
         source: [],
       };
     } else {
-     
-    // Gabungkan ringkasan dan sumber
-    allArticles.forEach((item, idx) => {
-      // Clean up the title by removing common fact-checking tags
-      const cleanTitle = item.title
-        .replace(/\[HOAKS\]/gi, '')
-        .replace(/\[DISINFORMASI\]/gi, '')
-        .replace(/\[FAKTA\]/gi, '')
-        .replace(/\[CEK FAKTA\]/gi, '')
-        .replace(/\[SALAH\]/gi, '')
-        .replace(/\[BENAR\]/gi, '')
-        .replace(/\[\s*[^\]]*\s*\]/g, '') // Remove any remaining bracketed text
-        .replace(/\s+/g, ' ')
+      // Gabungkan ringkasan dan sumber
+      allArticles.forEach((item, idx) => {
+        // Clean up the title by removing common fact-checking tags
+        const cleanTitle = item.title
+          .replace(/\[HOAKS\]/gi, "")
+          .replace(/\[DISINFORMASI\]/gi, "")
+          .replace(/\[FAKTA\]/gi, "")
+          .replace(/\[CEK FAKTA\]/gi, "")
+          .replace(/\[SALAH\]/gi, "")
+          .replace(/\[BENAR\]/gi, "")
+          .replace(/\[\s*[^\]]*\s*\]/g, "") // Remove any remaining bracketed text
+          .replace(/\s+/g, " ")
+          .trim();
+        articleSummaries += `Info ${idx + 1}: ${cleanTitle}\n${item.snippet}\n`;
+        sourcesList += `${idx + 1}. ${item.link}\n`;
+      });
+
+      // Get the original query for the prompt
+      const queryForPrompt = summary
+        .replace(/@\d+/g, "") // Remove phone numbers/mentions
+        .replace(/sairing/gi, "") // Remove trigger word
+        .replace(/[^\w\s]/g, " ") // Replace special chars with space
+        .replace(/\s+/g, " ") // Normalize spaces
         .trim();
-      articleSummaries += `Info ${idx + 1}: ${cleanTitle}\n${item.snippet}\n`;
-      sourcesList += `${idx + 1}. ${item.link}\n`;
-    });
 
-    // Get the original query for the prompt
-    const queryForPrompt = summary
-      .replace(/@\d+/g, '') // Remove phone numbers/mentions
-      .replace(/sairing/gi, '') // Remove trigger word
-      .replace(/[^\w\s]/g, ' ') // Replace special chars with space
-      .replace(/\s+/g, ' ') // Normalize spaces
-      .trim();
-
-    const aiPrompt = `
+      const aiPrompt = `
 Kamu adalah AI hoax detector, dan telah menemukan beberapa informasi dari website terpercaya. 
 ini adalah ringkasan informasinya ${articleSummaries}
 ini adalah sumber informasinya ${sourcesList}
@@ -153,14 +152,13 @@ ini adalah sumber informasinya ${sourcesList}
 - di akhir kasih kesimpulan singkat: HOAX atau TIDAK HOAX
 - gunakan emoji, bold text yang penting, italic untuk bahasa asing, untuk format whatsapp message
     `.trim();
-    const aiAnalysis = await askingAI({
-      input: `"${queryForPrompt}" Apakah merupakan HOAX atau TIDAK HOAX? Berikan penjelasan ringkas`,
-      prompt: aiPrompt
-    });
+      const aiAnalysis = await askingAI({
+        input: `"${queryForPrompt}" Apakah merupakan HOAX atau TIDAK HOAX? Berikan penjelasan ringkas`,
+        prompt: aiPrompt,
+      });
 
-    return { summerize: aiAnalysis, source: allArticles };
+      return { summerize: aiAnalysis, source: allArticles };
     }
-
   } catch (error: any) {
     console.error(
       "Gagal menganalisis dengan AI:",

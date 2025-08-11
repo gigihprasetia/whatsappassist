@@ -105,7 +105,11 @@
     </div>
 
     <script>
-      const socket = new WebSocket("ws://localhost:3000");
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const host = window.location.hostname;
+      const port = window.location.port || "3000";
+
+      const socket = new WebSocket(`${protocol}://${host}:${port}`);
 
       const qrImg = document.getElementById("qr-img");
       const qrMsg = document.getElementById("qr-message");

@@ -35,7 +35,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           script: |
-            docker pull ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest
-            docker stop whatsappassist || true
-            docker rm whatsappassist || true
-            docker run -d -p 3000:3000 -v .wwebjs_auth:/app/.wwebjs_auth -v .wwebjs_cache:/app/.wwebjs_cache -v cache:/app/cache -v data:/app/data ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest
+            sudo docker pull ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest
+            sudo docker stop whatsappassist || true
+            sudo docker rm whatsappassist || true
+            sudo docker run -d -p 3000:3000 -v .wwebjs_auth:/app/.wwebjs_auth -v .wwebjs_cache:/app/.wwebjs_cache -v cache:/app/cache -v data:/app/data ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest

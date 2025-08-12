@@ -39,4 +39,4 @@ jobs:
             sudo docker pull ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest
             sudo docker stop whatsappassist || true
             sudo docker rm whatsappassist || true
-            sudo docker run -d -p 3000:3000 --name=whatsappassist --env-file /home/whatsappassist -v .wwebjs_auth:/app/.wwebjs_auth -v .wwebjs_cache:/app/.wwebjs_cache -v cache:/app/cache -v data:/app/data ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest
+            sudo docker run -d -p 3000:3000 --name=whatsappassist --env-file /home/whatsappassist/.env -v .wwebjs_auth:/app/.wwebjs_auth -v .wwebjs_cache:/app/.wwebjs_cache -v cache:/app/cache -v data:/app/data ${{ secrets.DOCKERHUB_USER }}/whatsappassist:latest

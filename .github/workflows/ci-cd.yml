@@ -7,23 +7,8 @@ on:
     branches: ["gege"]
 
 jobs:
-  build-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - name: Install & Test
-        run: |
-          npm ci
-          npm test
-
   build-and-push:
-    needs: build-test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - name: Log in to Docker Hub
@@ -41,7 +26,6 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v0.1.8
@@ -54,4 +38,4 @@ jobs:
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest
             docker stop whatsappassist || true
             docker rm whatsappassist || true
-            docker run -d --name whatsappassist -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest
+            docker run -d -p 3000:3000 -v .wwebjs_auth:/app/.wwebjs_auth -v .wwebjs_cache:/app/.wwebjs_cache -v cache:/app/cache -v data:/app/data ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest

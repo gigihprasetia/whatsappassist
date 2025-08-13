@@ -1,12 +1,13 @@
 import WhatsAppWebJS from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
 import { askingAI, searchArticleWithGoogleAndAI } from "./ai_agent";
-import { parseMessage } from "./parser";
+import { linkTiktokMessage, parseMessage } from "./parser";
 import { promptData } from "../utils/prompt";
 import { getArticle, getArticleContent } from "./scrap";
 import { mediaCache } from "../utils/media_cache";
 import QRCode from "qrcode";
 import { wss } from "../main";
+import { downloadTikTokVideo } from "./linkVideo";
 
 async function analyzeMediaMessage(message: any): Promise<string> {
   try {
@@ -345,18 +346,44 @@ wa_client.on("message", async (msg) => {
           // Use text content for analysis
           rawQuery = body;
           if (rawQuery.startsWith("https") || rawQuery.startsWith("http")) {
-            const summary = await getArticle(rawQuery);
-            if (!summary.title && !summary.content) {
-              msg.reply("title artikel tidak ditemukan");
-              return;
+            if (rawQuery.includes("tiktok.com")) {
+              const text = await linkTiktokMessage(rawQuery);
+
+              const googleSearchQuery = await askingAI({
+                prompt: promptData.getHeadline,
+                input: text,
+              });
+
+              let hoaxCheck = "";
+              // Search for articles and analyze with AI
+              const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
+                googleSearchQuery
+              );
+              if (hoaxCheckFromGoogle.source.length > 0) {
+                hoaxCheck = hoaxCheckFromGoogle.summerize;
+              } else {
+                const hoaxCheckFromAI = await askingAI({
+                  prompt: promptData.checkHoaxWithoutArticles,
+                  input: googleSearchQuery,
+                });
+                hoaxCheck = hoaxCheckFromAI;
+              }
+
+              response = hoaxCheck;
+            } else {
+              const summary = await getArticle(rawQuery);
+              if (!summary.title && !summary.content) {
+                msg.reply("title artikel tidak ditemukan");
+                return;
+              }
+              const getClearContent = await askingAI({
+                input: `ambil bagan content nya ${summary.content}`,
+              });
+              response = await askingAI({
+                input: `title : ${summary.title}, content:${getClearContent}`,
+                prompt: promptData.checkHoax,
+              });
             }
-            const getClearContent = await askingAI({
-              input: `ambil bagan content nya ${summary.content}`,
-            });
-            response = await askingAI({
-              input: `title : ${summary.title}, content:${getClearContent}`,
-              prompt: promptData.checkHoax,
-            });
           } else {
             const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
               rawQuery
@@ -527,18 +554,44 @@ wa_client.on("message", async (msg) => {
 //           // Use text content for analysis
 //           rawQuery = body;
 //           if (rawQuery.startsWith("https") || rawQuery.startsWith("http")) {
-//             const summary = await getArticle(rawQuery);
-//             if (!summary.title && !summary.content) {
-//               msg.reply("title artikel tidak ditemukan");
-//               return;
+//             if (rawQuery.includes("tiktok.com")) {
+//               const text = await linkTiktokMessage(rawQuery);
+
+//               const googleSearchQuery = await askingAI({
+//                 prompt: promptData.getHeadline,
+//                 input: text,
+//               });
+
+//               let hoaxCheck = "";
+//               // Search for articles and analyze with AI
+//               const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
+//                 googleSearchQuery
+//               );
+//               if (hoaxCheckFromGoogle.source.length > 0) {
+//                 hoaxCheck = hoaxCheckFromGoogle.summerize;
+//               } else {
+//                 const hoaxCheckFromAI = await askingAI({
+//                   prompt: promptData.checkHoaxWithoutArticles,
+//                   input: googleSearchQuery,
+//                 });
+//                 hoaxCheck = hoaxCheckFromAI;
+//               }
+
+//               response = hoaxCheck;
+//             } else {
+//               const summary = await getArticle(rawQuery);
+//               if (!summary.title && !summary.content) {
+//                 msg.reply("title artikel tidak ditemukan");
+//                 return;
+//               }
+//               const getClearContent = await askingAI({
+//                 input: `ambil bagan content nya ${summary.content}`,
+//               });
+//               response = await askingAI({
+//                 input: `title : ${summary.title}, content:${getClearContent}`,
+//                 prompt: promptData.checkHoax,
+//               });
 //             }
-//             const getClearContent = await askingAI({
-//               input: `ambil bagan content nya ${summary.content}`,
-//             });
-//             response = await askingAI({
-//               input: `title : ${summary.title}, content:${getClearContent}`,
-//               prompt: promptData.checkHoax,
-//             });
 //           } else {
 //             const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
 //               rawQuery

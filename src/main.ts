@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
+import { downloadTikTokVideo } from "./services/linkVideo";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,15 @@ app.post("/get-article", async (req: Request, res: Response) => {
 
 app.get("/", (req: Request, res: Response) => {
   res.render("index", { qr: current_qr, isLogin });
+});
+
+app.post("/tiktok", async (req: Request, res: Response) => {
+  const { url } = req.body;
+  const data = await downloadTikTokVideo(url, "./src/assets/video");
+  console.log(data, "data");
+  res.json({
+    message: "success",
+  });
 });
 
 // WebSocket connection handler

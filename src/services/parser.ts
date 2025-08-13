@@ -15,11 +15,16 @@ import { AI_AGENT, askingAI } from "./ai_agent";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function parseVideoToMP3toText(videoData: string, mediaKey?: string): Promise<string[]> {
+export async function parseVideoToMP3toText(
+  videoData: string,
+  mediaKey?: string
+): Promise<string[]> {
   const timestamp = Date.now();
   const videoDir = path.join(__dirname, "../assets/video");
   const audioDir = path.join(__dirname, "../assets/audio");
-  const filePrefix = mediaKey ? mediaKey.replace(/[^a-zA-Z0-9]/g, '_') : timestamp;
+  const filePrefix = mediaKey
+    ? mediaKey.replace(/[^a-zA-Z0-9]/g, "_")
+    : timestamp;
   const outputDir = path.join(audioDir, `${filePrefix}_segments`);
 
   // Buat folder jika belum ada
@@ -34,7 +39,7 @@ export async function parseVideoToMP3toText(videoData: string, mediaKey?: string
   if (mediaKey) {
     const cachedSegments = mediaCache.get(`${mediaKey}_segments`);
     if (cachedSegments) {
-      console.log('✅ Using cached audio segments');
+      console.log("✅ Using cached audio segments");
       return cachedSegments;
     }
   }
@@ -84,8 +89,8 @@ export async function parseVideoToMP3toText(videoData: string, mediaKey?: string
           mediaCache.set(`${mediaKey}_segments`, files);
           mediaCache.setMetadata({
             mediaKey: `${mediaKey}_segments`,
-            mimetype: 'audio/mp3',
-            timestamp: Date.now()
+            mimetype: "audio/mp3",
+            timestamp: Date.now(),
           });
         }
         resolve(files);
@@ -98,6 +103,120 @@ export async function parseVideoToMP3toText(videoData: string, mediaKey?: string
   });
 }
 
+export async function linkTiktokMessage(url: string): Promise<string> {
+  const regex = /(https?:\/\/www\.tiktok\.com\/[^\s]+)/;
+  const match = url.match(regex);
+  if (!match) throw new Error("Tidak ada link TikTok valid");
+
+  const urlRes = new URL(match[0]);
+
+  const videoDir = path.join(__dirname, "../assets/video");
+  const audioDir = path.join(__dirname, "../assets/audio");
+  const frameDir = path.join(__dirname, "../assets/frames");
+  fs.mkdirSync(videoDir, { recursive: true });
+  fs.mkdirSync(audioDir, { recursive: true });
+  fs.mkdirSync(frameDir, { recursive: true });
+
+  const result: {
+    success: boolean;
+    filePath?: string;
+  } = await downloadTikTokVideo(urlRes.href, videoDir);
+  if (!result.success || !result.filePath) {
+    throw new Error(`Gagal mengunduh video"}`);
+  }
+  const filePath = result.filePath;
+  console.log("Video downloaded:", filePath);
+
+  // Ambil nama video dari URL
+  const pathParts = urlRes.pathname.split("/");
+  const videoId = pathParts[pathParts.length - 1] || "tiktok_video";
+
+  // Ekstrak screenshot setiap 5 detik
+  const framePaths: string[] = [];
+  await new Promise<void>((resolve, reject) => {
+    Ffmpeg(filePath)
+      .screenshots({
+        timestamps: Array.from({ length: 100 }, (_, i) => i * 5), // Setiap 5 detik, maks 500 detik
+        filename: `${videoId}_frame_%s.png`,
+        folder: frameDir,
+        count: 100,
+      })
+      .on("end", () => resolve())
+      .on("error", (err) =>
+        reject(new Error(`Error ekstrak frame: ${err.message}`))
+      );
+  });
+  const frameFiles = fs
+    .readdirSync(frameDir)
+    .filter((file) => file.startsWith(`${videoId}_frame_`));
+  framePaths.push(...frameFiles.map((file) => path.join(frameDir, file)));
+  console.log("Frames extracted:", framePaths.length, "frames");
+
+  // Ekstrak teks dari setiap screenshot
+  const screenshotTexts: string[] = [];
+  for (const framePath of framePaths) {
+    const imageBuffer = fs.readFileSync(framePath);
+    const base64Image = imageBuffer.toString("base64");
+    const text = await new Promise<string>((resolve, reject) => {
+      Tesseract.recognize(Buffer.from(base64Image, "base64"), "eng")
+        .then(({ data: { text } }) => resolve(text))
+        .catch(reject);
+    });
+    screenshotTexts.push(`${text}`);
+    // console.log(`Teks dari ${framePath}:`, text);
+  }
+
+  // Tentukan path audio output
+  const audioOutput = path.join(audioDir, `${videoId}.mp3`);
+
+  // Konversi video ke MP3
+  await new Promise<void>((resolve, reject) => {
+    Ffmpeg(filePath)
+      .noVideo()
+      .audioCodec("libmp3lame")
+      .audioBitrate(128)
+      .save(audioOutput)
+      .on("end", () => {
+        console.log("✅ Konversi ke MP3 selesai:", audioOutput);
+        resolve();
+      })
+      .on("error", (err) => {
+        console.error("❌ Error konversi MP3:", err.message);
+        reject(err);
+      });
+  });
+
+  console.log("🔊 Transcribing:", audioOutput);
+  const audioTranscription = await AI_AGENT.audio.transcriptions.create({
+    file: fs.createReadStream(audioOutput),
+    model: "gpt-4o-transcribe",
+    response_format: "text",
+  });
+  console.log("Transkripsi audio:", audioTranscription);
+
+  // Gabungkan semua teks
+  const allText = `textaudio : ${audioTranscription} || textPicture : ${screenshotTexts.join(
+    "\n"
+  )}`;
+
+  fs.unlink(filePath, (err) => {
+    if (err) console.warn("Gagal menghapus file video:", err.message);
+  });
+  // Bersihkan file sementara (opsional)
+  fs.unlink(audioOutput, (err) => {
+    if (err) console.warn("Gagal menghapus file MP3 asli:", err.message);
+  });
+
+  framePaths.forEach((framePath) =>
+    fs.unlink(framePath, (err) => {
+      if (err) console.warn(`Gagal menghapus frame ${framePath}:`, err.message);
+    })
+  );
+  // console.log("Semua teks:\n", allText);
+
+  return allText;
+}
+
 // PDF parsing moved to pdf_parser.ts
 export async function extractTextFromImage(imageData: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,8 +226,9 @@ export async function extractTextFromImage(imageData: string): Promise<string> {
   });
 }
 
-import { mediaCache } from '../utils/media_cache';
+import { mediaCache } from "../utils/media_cache";
 import { promptData } from "../utils/prompt";
+import { downloadTikTokVideo } from "./linkVideo";
 
 export async function parseMessage(message: any): Promise<any> {
   try {
@@ -145,12 +265,14 @@ export async function parseMessage(message: any): Promise<any> {
               mediaKey: messageMediaKey,
               mimetype: media.mimetype,
               filename: media.filename,
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
           }
         } catch (err: any) {
           console.error("Error downloading media:", err);
-          throw new Error("Failed to download media: " + (err.message || String(err)));
+          throw new Error(
+            "Failed to download media: " + (err.message || String(err))
+          );
         }
       }
     }
@@ -168,7 +290,7 @@ export async function parseMessage(message: any): Promise<any> {
           mediaKey: mediaKeyToUse,
           mimetype: media.mimetype,
           filename: media.filename,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
 
         // Store media content
@@ -187,25 +309,34 @@ export async function parseMessage(message: any): Promise<any> {
         console.log("Processing video...");
         // Get timestamp from cache if available
         const mediaKeyToUse = rawData.mediaKey || (media as any).mediaKey;
-        const metadata = mediaKeyToUse ? mediaCache.getMetadata(mediaKeyToUse) : null;
+        const metadata = mediaKeyToUse
+          ? mediaCache.getMetadata(mediaKeyToUse)
+          : null;
         const timestamp = metadata?.timestamp || Date.now();
         const videoDir = path.join(__dirname, "../assets/video");
         const videoPath = path.join(videoDir, `${timestamp}.mp4`);
-        const framesDir = path.join(__dirname, "../assets/frames", `${timestamp}`);
+        const framesDir = path.join(
+          __dirname,
+          "../assets/frames",
+          `${timestamp}`
+        );
 
         // Check if we already have processed this video
         if (fs.existsSync(videoPath) && fs.existsSync(framesDir)) {
           console.log("Using existing processed video assets...");
-          const frameFiles = fs.readdirSync(framesDir)
-            .filter(file => file.endsWith('.jpg'))
-            .map(file => path.join(framesDir, file));
+          const frameFiles = fs
+            .readdirSync(framesDir)
+            .filter((file) => file.endsWith(".jpg"))
+            .map((file) => path.join(framesDir, file));
 
-          let frameTexts = '';
+          let frameTexts = "";
           for (const framePath of frameFiles) {
             const frameBuffer = fs.readFileSync(framePath);
-            const frameText = await extractTextFromImage(frameBuffer.toString('base64'));
+            const frameText = await extractTextFromImage(
+              frameBuffer.toString("base64")
+            );
             if (frameText.trim()) {
-              frameTexts += frameText + '\n\n';
+              frameTexts += frameText + "\n\n";
             }
           }
           summary = frameTexts;
@@ -213,12 +344,16 @@ export async function parseMessage(message: any): Promise<any> {
         }
 
         // Save video file for frame extraction if needed
-        if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
+        if (!fs.existsSync(videoDir))
+          fs.mkdirSync(videoDir, { recursive: true });
         if (!fs.existsSync(videoPath)) {
           fs.writeFileSync(videoPath, Buffer.from(media.data, "base64"));
         }
 
-        const dataText = await parseVideoToMP3toText(media.data, messageMediaKey);
+        const dataText = await parseVideoToMP3toText(
+          media.data,
+          messageMediaKey
+        );
         let allText = "";
 
         for (const filePath of dataText) {
@@ -234,27 +369,30 @@ export async function parseMessage(message: any): Promise<any> {
         // Check if content is related to news/hoax
         const isNewsRelated = await askingAI({
           input: allText,
-          prompt: "Analyze if this content is related to news or claims that need fact-checking. Return only 'YES' if it's related to news/claims that need verification, or 'NO' if it's just casual conversation, entertainment, or unrelated content."
+          prompt:
+            "Analyze if this content is related to news or claims that need fact-checking. Return only 'YES' if it's related to news/claims that need verification, or 'NO' if it's just casual conversation, entertainment, or unrelated content.",
         });
 
-        if (isNewsRelated.trim() === 'NO') {
+        if (isNewsRelated.trim() === "NO") {
           console.log("Content not related to news/hoax, extracting frames...");
 
           // Check if we have cached frames and OCR results
           let frameFiles: string[] = [];
-          let cachedOCRResults = '';
-          
+          let cachedOCRResults = "";
+
           if (messageMediaKey) {
             // Check for cached frames
             const cachedFrames = mediaCache.get(`${messageMediaKey}_frames`);
             if (cachedFrames) {
-              console.log('✅ Using cached video frames');
+              console.log("✅ Using cached video frames");
               frameFiles = cachedFrames;
-              
+
               // Check for cached OCR results
-              const cachedOCR = mediaCache.get(`${messageMediaKey}_ocr_results`);
+              const cachedOCR = mediaCache.get(
+                `${messageMediaKey}_ocr_results`
+              );
               if (cachedOCR) {
-                console.log('✅ Using cached OCR results');
+                console.log("✅ Using cached OCR results");
                 cachedOCRResults = cachedOCR;
               }
             }
@@ -265,12 +403,14 @@ export async function parseMessage(message: any): Promise<any> {
             fs.mkdirSync(framesDir, { recursive: true });
 
             // Get video duration first
-            const videoDuration = await new Promise<number>((resolve, reject) => {
-              Ffmpeg.ffprobe(videoPath, (err, metadata) => {
-                if (err) reject(err);
-                resolve(metadata.format.duration || 0);
-              });
-            });
+            const videoDuration = await new Promise<number>(
+              (resolve, reject) => {
+                Ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                  if (err) reject(err);
+                  resolve(metadata.format.duration || 0);
+                });
+              }
+            );
 
             // Calculate number of screenshots (one every 5 seconds)
             const screenshotCount = Math.max(1, Math.floor(videoDuration / 5));
@@ -279,47 +419,61 @@ export async function parseMessage(message: any): Promise<any> {
               Ffmpeg(videoPath)
                 .screenshots({
                   count: screenshotCount,
-                  timemarks: Array.from({ length: screenshotCount }, (_, i) => i * 5), // take screenshot every 5 seconds
+                  timemarks: Array.from(
+                    { length: screenshotCount },
+                    (_, i) => i * 5
+                  ), // take screenshot every 5 seconds
                   folder: framesDir,
-                  filename: 'frame-%i.jpg'
+                  filename: "frame-%i.jpg",
                 })
-                .on('end', () => {
+                .on("end", () => {
                   // Get list of generated frame files
-                  frameFiles = fs.readdirSync(framesDir)
-                    .filter(file => file.endsWith('.jpg'))
-                    .map(file => path.join(framesDir, file));
+                  frameFiles = fs
+                    .readdirSync(framesDir)
+                    .filter((file) => file.endsWith(".jpg"))
+                    .map((file) => path.join(framesDir, file));
                   resolve();
                 })
-                .on('error', (err) => reject(err));
+                .on("error", (err) => reject(err));
             });
           }
 
           // If we don't have cached OCR results, process frames
           let frameTexts = cachedOCRResults;
           if (!frameTexts && frameFiles.length > 0) {
-            frameTexts = '';
+            frameTexts = "";
             for (const framePath of frameFiles) {
               const frameBuffer = fs.readFileSync(framePath);
-              const frameBase64 = frameBuffer.toString('base64');
-              
+              const frameBase64 = frameBuffer.toString("base64");
+
               // Extract text using OCR
               const frameText = await extractTextFromImage(frameBase64);
-              
+
               // Analyze image with GPT-4 Vision
-              const frameAnalysis = await analyzeImageWithGPT4(Buffer.from(frameBase64, 'base64'));
-              
+              const frameAnalysis = await analyzeImageWithGPT4(
+                Buffer.from(frameBase64, "base64")
+              );
+
               if (frameText.trim() || frameAnalysis.trim()) {
                 frameTexts += `Frame Analysis:\n${frameAnalysis}\n\nDetected Text:\n${frameText}\n\n---\n\n`;
               }
             }
-            
-
           }
           summary = frameTexts;
-          return { summary: frameTexts, frameFiles, frameTexts, mediaKey: messageMediaKey };
+          return {
+            summary: frameTexts,
+            frameFiles,
+            frameTexts,
+            mediaKey: messageMediaKey,
+          };
         } else {
           summary = allText;
-          return { summary: allText, frameFiles: [], frameTexts: '', mediaKey: messageMediaKey };
+          return {
+            summary: allText,
+            frameFiles: [],
+            frameTexts: "",
+            mediaKey: messageMediaKey,
+          };
         }
 
         break;
@@ -349,10 +503,11 @@ ${textFromOCR}`;
     }
     console.log("summary", summary);
     return {
-      summary: summary || "❌ Tidak ada konten yang dapat dianalisis dari media ini.",
+      summary:
+        summary || "❌ Tidak ada konten yang dapat dianalisis dari media ini.",
       frameFiles: [],
-      frameTexts: '',
-      mediaKey: messageMediaKey
+      frameTexts: "",
+      mediaKey: messageMediaKey,
     };
   } catch (error) {
     console.error("Gagal membaca media:", error);

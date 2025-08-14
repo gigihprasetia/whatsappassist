@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import puppeteer, { Browser } from "puppeteer";
+import { getFbVideoInfo } from "fb-downloader-scrapper";
 import axios from "axios";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface DownloadResult {
   success: boolean;
@@ -11,7 +16,7 @@ interface DownloadResult {
 
 export async function downloadTikTokVideo(
   url: string,
-  outputDir: string = "./downloads",
+  outputDir: string = path.join(__dirname, "../assets/video"),
   maxRetries: number = 3
 ): Promise<DownloadResult> {
   let browser: Browser | null = null;
@@ -147,12 +152,63 @@ export async function downloadTikTokVideo(
     };
   } catch (error) {
     if (browser) await browser.close();
+
+    console.log(error);
+
     return {
       success: false,
       error:
         error instanceof Error
           ? error.message
           : "Terjadi error yang tidak diketahui",
+    };
+  }
+}
+
+export async function downloadFacebookVideo(
+  url: string,
+  outputDir: string = path.join(__dirname, "../assets/video")
+): Promise<any> {
+  try {
+    const data = await getFbVideoInfo(url);
+
+    const fileName = `facebook_${data.title
+      ?.replace(/\s+/g, "")
+      .replace(/[^\w\s]/g, "")
+      .toLowerCase()}.mp4`;
+    const filePath = path.join(outputDir, fileName);
+
+    const response = await axios({
+      url: data.hd,
+      method: "GET",
+      responseType: "stream",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        Referer: "https://ssstik.io/",
+      },
+      timeout: 3000,
+    });
+
+    const writer = await fs.open(filePath, "w");
+    const stream = response.data.pipe(await writer.createWriteStream());
+    await new Promise((resolve, reject) => {
+      stream.on("finish", resolve);
+      stream.on("error", reject);
+    });
+    await writer.close();
+
+    // console.log(data);
+    return {
+      success: true,
+      filePath,
+    };
+  } catch (e) {
+    console.log(e);
+    console.log("facebook error");
+    return {
+      success: false,
+      filePath: "",
     };
   }
 }

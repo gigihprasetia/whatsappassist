@@ -1,7 +1,7 @@
 import WhatsAppWebJS from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
 import { askingAI, searchArticleWithGoogleAndAI } from "./ai_agent";
-import { linkTiktokMessage, parseMessage } from "./parser";
+import { linkFacebookMessage, linkTiktokMessage, parseMessage } from "./parser";
 import { promptData } from "../utils/prompt";
 import { getArticle, getArticleContent } from "./scrap";
 import { mediaCache } from "../utils/media_cache";
@@ -370,6 +370,29 @@ wa_client.on("message", async (msg) => {
               }
 
               response = hoaxCheck;
+            } else if (rawQuery.includes("facebook.com")) {
+              const text = await linkFacebookMessage(rawQuery);
+              const googleSearchQuery = await askingAI({
+                prompt: promptData.getHeadline,
+                input: text,
+              });
+
+              let hoaxCheck = "";
+              // Search for articles and analyze with AI
+              const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
+                googleSearchQuery
+              );
+              if (hoaxCheckFromGoogle.source.length > 0) {
+                hoaxCheck = hoaxCheckFromGoogle.summerize;
+              } else {
+                const hoaxCheckFromAI = await askingAI({
+                  prompt: promptData.checkHoaxWithoutArticles,
+                  input: googleSearchQuery,
+                });
+                hoaxCheck = hoaxCheckFromAI;
+              }
+
+              response = hoaxCheck;
             } else {
               const summary = await getArticle(rawQuery);
               if (!summary.title && !summary.content) {
@@ -423,20 +446,20 @@ sairing apakah benar ada bantuan dana dari pemerintah?
 import { isKnownGroup, addKnownGroup } from "../utils/group_cache";
 
 // Listen for group messages and handle first-time interactions
-wa_client.on("message", async (message) => {
-  if (message.from.endsWith("@g.us")) {
-    const chat = await message.getChat();
+// wa_client.on("message", async (message) => {
+//   if (message.from.endsWith("@g.us")) {
+//     const chat = await message.getChat();
 
-    console.log("👥 Checking group:", chat.id._serialized);
-    if (!isKnownGroup(chat.id._serialized)) {
-      console.log("✨ New group detected, sending intro message");
-      addKnownGroup(chat.id._serialized);
-      chat.sendMessage(introMessage);
-    } else {
-      console.log("ℹ️ Group already known, skipping intro");
-    }
-  }
-});
+//     console.log("👥 Checking group:", chat.id._serialized);
+//     if (!isKnownGroup(chat.id._serialized)) {
+//       console.log("✨ New group detected, sending intro message");
+//       addKnownGroup(chat.id._serialized);
+//       chat.sendMessage(introMessage);
+//     } else {
+//       console.log("ℹ️ Group already known, skipping intro");
+//     }
+//   }
+// });
 
 // Handle greetings and first messages in chats
 wa_client.on("message", async (msg) => {
@@ -557,6 +580,29 @@ wa_client.on("message", async (msg) => {
 //             if (rawQuery.includes("tiktok.com")) {
 //               const text = await linkTiktokMessage(rawQuery);
 
+//               const googleSearchQuery = await askingAI({
+//                 prompt: promptData.getHeadline,
+//                 input: text,
+//               });
+
+//               let hoaxCheck = "";
+//               // Search for articles and analyze with AI
+//               const hoaxCheckFromGoogle = await searchArticleWithGoogleAndAI(
+//                 googleSearchQuery
+//               );
+//               if (hoaxCheckFromGoogle.source.length > 0) {
+//                 hoaxCheck = hoaxCheckFromGoogle.summerize;
+//               } else {
+//                 const hoaxCheckFromAI = await askingAI({
+//                   prompt: promptData.checkHoaxWithoutArticles,
+//                   input: googleSearchQuery,
+//                 });
+//                 hoaxCheck = hoaxCheckFromAI;
+//               }
+
+//               response = hoaxCheck;
+//             } else if (rawQuery.includes("facebook.com")) {
+//               const text = await linkFacebookMessage(rawQuery);
 //               const googleSearchQuery = await askingAI({
 //                 prompt: promptData.getHeadline,
 //                 input: text,

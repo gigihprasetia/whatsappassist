@@ -54,4 +54,4 @@ jobs:
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest
             docker stop whatsappassist || true
             docker rm whatsappassist || true
-            docker run -d --name whatsappassist -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest
+            docker run -d --name whatsappassist --env-file /home/whatsappassist/.env -p 3000:3000 ${{ secrets.DOCKERHUB_USERNAME }}/whatsappassist:latest

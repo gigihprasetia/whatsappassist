@@ -195,9 +195,121 @@ export async function linkTiktokMessage(url: string): Promise<string> {
   console.log("Transkripsi audio:", audioTranscription);
 
   // Gabungkan semua teks
-  const allText = `textaudio : ${audioTranscription} || textPicture : ${screenshotTexts.join(
-    "\n"
-  )}`;
+  const allText = `${audioTranscription} , ${screenshotTexts.join("\n")}`;
+
+  fs.unlink(filePath, (err) => {
+    if (err) console.warn("Gagal menghapus file video:", err.message);
+  });
+  // Bersihkan file sementara (opsional)
+  fs.unlink(audioOutput, (err) => {
+    if (err) console.warn("Gagal menghapus file MP3 asli:", err.message);
+  });
+
+  framePaths.forEach((framePath) =>
+    fs.unlink(framePath, (err) => {
+      if (err) console.warn(`Gagal menghapus frame ${framePath}:`, err.message);
+    })
+  );
+  // console.log("Semua teks:\n", allText);
+
+  return allText;
+}
+
+export async function linkFacebookMessage(url: string): Promise<string> {
+  const regex = /https?:\/\/[^\s]+/;
+  const match = url.match(regex);
+  if (!match) throw new Error("Tidak ada link Facebook valid");
+
+  const urlRes = new URL(match[0]);
+
+  // console.log(urlRes, "url");
+
+  const videoDir = path.join(__dirname, "../assets/video");
+  const audioDir = path.join(__dirname, "../assets/audio");
+  const frameDir = path.join(__dirname, "../assets/frames");
+  fs.mkdirSync(videoDir, { recursive: true });
+  fs.mkdirSync(audioDir, { recursive: true });
+  fs.mkdirSync(frameDir, { recursive: true });
+
+  const result: {
+    success: boolean;
+    filePath?: string;
+  } = await downloadFacebookVideo(urlRes.href, videoDir);
+  if (!result.success || !result.filePath) {
+    throw new Error(`Gagal mengunduh video"}`);
+  }
+  const filePath = result.filePath;
+  console.log("Video downloaded:", filePath);
+
+  // Ambil nama video dari URL
+  const pathParts = urlRes.pathname.split("/");
+  const videoId = pathParts[pathParts.length - 1] || "facebook_video";
+
+  // Ekstrak screenshot setiap 5 detik
+  const framePaths: string[] = [];
+  await new Promise<void>((resolve, reject) => {
+    Ffmpeg(filePath)
+      .screenshots({
+        timestamps: Array.from({ length: 100 }, (_, i) => i * 5), // Setiap 5 detik, maks 500 detik
+        filename: `${videoId}_frame_%s.png`,
+        folder: frameDir,
+        count: 100,
+      })
+      .on("end", () => resolve())
+      .on("error", (err) =>
+        reject(new Error(`Error ekstrak frame: ${err.message}`))
+      );
+  });
+  const frameFiles = fs
+    .readdirSync(frameDir)
+    .filter((file) => file.startsWith(`${videoId}_frame_`));
+  framePaths.push(...frameFiles.map((file) => path.join(frameDir, file)));
+  console.log("Frames extracted:", framePaths.length, "frames");
+
+  // Ekstrak teks dari setiap screenshot
+  const screenshotTexts: string[] = [];
+  for (const framePath of framePaths) {
+    const imageBuffer = fs.readFileSync(framePath);
+    const base64Image = imageBuffer.toString("base64");
+    const text = await new Promise<string>((resolve, reject) => {
+      Tesseract.recognize(Buffer.from(base64Image, "base64"), "eng")
+        .then(({ data: { text } }) => resolve(text))
+        .catch(reject);
+    });
+    screenshotTexts.push(`${text}`);
+    // console.log(`Teks dari ${framePath}:`, text);
+  }
+
+  // Tentukan path audio output
+  const audioOutput = path.join(audioDir, `${videoId}.mp3`);
+
+  // Konversi video ke MP3
+  await new Promise<void>((resolve, reject) => {
+    Ffmpeg(filePath)
+      .noVideo()
+      .audioCodec("libmp3lame")
+      .audioBitrate(128)
+      .save(audioOutput)
+      .on("end", () => {
+        console.log("✅ Konversi ke MP3 selesai:", audioOutput);
+        resolve();
+      })
+      .on("error", (err) => {
+        console.error("❌ Error konversi MP3:", err.message);
+        reject(err);
+      });
+  });
+
+  console.log("🔊 Transcribing:", audioOutput);
+  const audioTranscription = await AI_AGENT.audio.transcriptions.create({
+    file: fs.createReadStream(audioOutput),
+    model: "gpt-4o-transcribe",
+    response_format: "text",
+  });
+  console.log("Transkripsi audio:", audioTranscription);
+
+  // Gabungkan semua teks
+  const allText = ` ${audioTranscription}, ${screenshotTexts.join("\n")}`;
 
   fs.unlink(filePath, (err) => {
     if (err) console.warn("Gagal menghapus file video:", err.message);
@@ -228,7 +340,7 @@ export async function extractTextFromImage(imageData: string): Promise<string> {
 
 import { mediaCache } from "../utils/media_cache";
 import { promptData } from "../utils/prompt";
-import { downloadTikTokVideo } from "./linkVideo";
+import { downloadFacebookVideo, downloadTikTokVideo } from "./linkVideo";
 
 export async function parseMessage(message: any): Promise<any> {
   try {
